@@ -3,24 +3,27 @@ package com.aiclipmaster.app;
 
 import android.app.Activity;
 import android.os.Bundle;
-import android.os.Handler;
 import android.content.Intent;
 import android.net.Uri;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.ViewGroup;
-import android.view.WindowManager;
 import android.widget.*;
 import android.view.View;
+import android.os.Handler;
 
 public class MainActivity extends Activity {
 
     LinearLayout layout;
-    TextView selectedVideo, durationText;
+    TextView selectedVideo, durationText, trimText;
     VideoView videoView;
     SeekBar seekBar;
+
     Uri videoUri;
+    int startTime = 0;
+    int endTime = 0;
+    int videoDuration = 0;
 
     Handler handler = new Handler();
     Runnable updateTimeline;
@@ -32,10 +35,17 @@ public class MainActivity extends Activity {
 
     String formatTime(int ms) {
         int total = ms / 1000;
-        int min = total / 60;
-        int sec = total % 60;
+        return String.format("%02d:%02d",
+            total / 60, total % 60);
+    }
 
-        return String.format("%02d:%02d", min, sec);
+    void updateTrimText() {
+        trimText.setText(
+            "Start: " + formatTime(startTime) +
+            "     End: " + formatTime(endTime) +
+            "\nSelected Duration: " +
+            formatTime(Math.max(0, endTime - startTime))
+        );
     }
 
     @Override
@@ -51,7 +61,6 @@ public class MainActivity extends Activity {
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(dp(18), dp(35), dp(18), dp(25));
         layout.setBackgroundColor(Color.rgb(15,15,25));
-
         scroll.addView(layout);
 
         TextView title = new TextView(this);
@@ -81,7 +90,6 @@ public class MainActivity extends Activity {
         selectedVideo = new TextView(this);
         selectedVideo.setText("No video selected");
         selectedVideo.setTextColor(Color.LTGRAY);
-        selectedVideo.setTextSize(14);
         addView(selectedVideo, 12);
 
         addHeading("VIDEO PREVIEW");
@@ -89,54 +97,32 @@ public class MainActivity extends Activity {
         videoView = new VideoView(this);
         videoView.setBackgroundColor(Color.BLACK);
 
-        LinearLayout.LayoutParams videoParams =
-            new LinearLayout.LayoutParams(
-                -1, dp(220)
-            );
-
-        videoParams.topMargin = dp(10);
-        layout.addView(videoView, videoParams);
+        layout.addView(videoView,
+            new LinearLayout.LayoutParams(-1, dp(220)));
 
         durationText = new TextView(this);
         durationText.setText("00:00 / 00:00");
         durationText.setTextColor(Color.WHITE);
-        durationText.setTextSize(14);
         addView(durationText, 8);
 
         seekBar = new SeekBar(this);
-        layout.addView(seekBar);
-
         seekBar.setMax(1000);
+        layout.addView(seekBar);
 
         seekBar.setOnSeekBarChangeListener(
             new SeekBar.OnSeekBarChangeListener() {
 
                 public void onProgressChanged(
-                    SeekBar bar, int progress,
-                    boolean fromUser) {
+                    SeekBar bar, int progress, boolean fromUser) {
 
-                    if (fromUser && videoView.isPlaying()) {
-                        int duration = videoView.getDuration();
-
-                        if (duration > 0) {
-                            int position =
-                                (duration * progress) / 1000;
-
-                            videoView.seekTo(position);
-                        }
-                    } else if (fromUser) {
-                        int duration = videoView.getDuration();
-
-                        if (duration > 0) {
-                            videoView.seekTo(
-                                duration * progress / 1000
-                            );
-                        }
+                    if (fromUser && videoDuration > 0) {
+                        videoView.seekTo(
+                            videoDuration * progress / 1000
+                        );
                     }
                 }
 
                 public void onStartTrackingTouch(SeekBar bar) {}
-
                 public void onStopTrackingTouch(SeekBar bar) {}
             }
         );
@@ -155,44 +141,72 @@ public class MainActivity extends Activity {
         layout.addView(controls);
 
         play.setOnClickListener(v -> {
-            if (videoUri != null) {
-                videoView.start();
-            }
+            if (videoUri != null) videoView.start();
         });
 
         pause.setOnClickListener(v -> {
+            if (videoUri != null) videoView.pause();
+        });
+
+        addHeading("VIDEO TRIMMER");
+
+        trimText = new TextView(this);
+        trimText.setTextColor(Color.WHITE);
+        trimText.setTextSize(16);
+        trimText.setPadding(0, dp(10), 0, dp(10));
+        layout.addView(trimText);
+        updateTrimText();
+
+        Button setStart = new Button(this);
+        setStart.setText("SET START TIME");
+        layout.addView(setStart);
+
+        setStart.setOnClickListener(v -> {
             if (videoUri != null) {
-                videoView.pause();
+                startTime = videoView.getCurrentPosition();
+
+                if (startTime >= endTime) {
+                    endTime = videoDuration;
+                }
+
+                updateTrimText();
             }
         });
 
-        updateTimeline = new Runnable() {
-            @Override
-            public void run() {
-                if (videoUri != null) {
-                    int duration = videoView.getDuration();
-                    int position = videoView.getCurrentPosition();
+        Button setEnd = new Button(this);
+        setEnd.setText("SET END TIME");
+        layout.addView(setEnd);
 
-                    if (duration > 0) {
-                        seekBar.setProgress(
-                            position * 1000 / duration
-                        );
+        setEnd.setOnClickListener(v -> {
+            if (videoUri != null) {
+                endTime = videoView.getCurrentPosition();
 
-                        durationText.setText(
-                            formatTime(position) + " / " +
-                            formatTime(duration)
-                        );
-                    }
+                if (endTime <= startTime) {
+                    Toast.makeText(this,
+                        "End time must be after start time",
+                        Toast.LENGTH_SHORT).show();
+                } else {
+                    updateTrimText();
                 }
-
-                handler.postDelayed(this, 500);
             }
-        };
+        });
 
-        handler.post(updateTimeline);
+        Button previewTrim = new Button(this);
+        previewTrim.setText("PREVIEW SELECTED PART");
+        layout.addView(previewTrim);
+
+        previewTrim.setOnClickListener(v -> {
+            if (videoUri != null && endTime > startTime) {
+                videoView.seekTo(startTime);
+                videoView.start();
+
+                Toast.makeText(this,
+                    "Preview starts from selected time",
+                    Toast.LENGTH_SHORT).show();
+            }
+        });
 
         addHeading("VIDEO TOOLS");
-
         addTool("AI Auto Clips", "Create short clips");
         addTool("AI Captions", "Generate subtitles");
         addTool("Viral Clip Detection", "Find interesting moments");
@@ -208,13 +222,33 @@ public class MainActivity extends Activity {
         footer.setPadding(0, dp(25), 0, dp(15));
         layout.addView(footer);
 
+        updateTimeline = new Runnable() {
+            public void run() {
+                if (videoUri != null && videoDuration > 0) {
+                    int position = videoView.getCurrentPosition();
+
+                    seekBar.setProgress(
+                        position * 1000 / videoDuration
+                    );
+
+                    durationText.setText(
+                        formatTime(position) + " / " +
+                        formatTime(videoDuration)
+                    );
+                }
+
+                handler.postDelayed(this, 500);
+            }
+        };
+
+        handler.post(updateTimeline);
+
         setContentView(scroll);
     }
 
     void addView(TextView view, int top) {
         LinearLayout.LayoutParams params =
             new LinearLayout.LayoutParams(-1, -2);
-
         params.topMargin = dp(top);
         layout.addView(view, params);
     }
@@ -237,7 +271,6 @@ public class MainActivity extends Activity {
 
         LinearLayout.LayoutParams params =
             new LinearLayout.LayoutParams(-1, -2);
-
         params.setMargins(0, dp(6), 0, dp(6));
 
         TextView heading = new TextView(this);
@@ -279,13 +312,16 @@ public class MainActivity extends Activity {
             videoView.setVideoURI(videoUri);
 
             videoView.setOnPreparedListener(mp -> {
-                int duration = videoView.getDuration();
+                videoDuration = videoView.getDuration();
+                startTime = 0;
+                endTime = videoDuration;
 
                 seekBar.setProgress(0);
-
                 durationText.setText(
-                    "00:00 / " + formatTime(duration)
+                    "00:00 / " + formatTime(videoDuration)
                 );
+
+                updateTrimText();
             });
         }
     }
