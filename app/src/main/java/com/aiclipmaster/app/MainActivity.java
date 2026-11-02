@@ -3,48 +3,75 @@ package com.aiclipmaster.app;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.os.Handler;
 import android.content.Intent;
 import android.net.Uri;
 import android.graphics.Color;
-import android.graphics.Typeface;
-import android.view.Gravity;
-import android.view.ViewGroup;
-import android.widget.*;
+import android.graphics.SurfaceTexture;
+import android.view.Surface;
+import android.view.TextureView;
 import android.view.View;
-import android.os.Handler;
+import android.view.Gravity;
+import android.widget.*;
+import android.media.MediaPlayer;
 
 public class MainActivity extends Activity {
 
     LinearLayout layout;
+    TextureView textureView;
     TextView selectedVideo, durationText, trimText;
-    VideoView videoView;
     SeekBar seekBar;
 
     Uri videoUri;
-    int startTime = 0;
-    int endTime = 0;
-    int videoDuration = 0;
+    Surface videoSurface;
+    MediaPlayer mediaPlayer;
 
     Handler handler = new Handler();
-    Runnable updateTimeline;
+
+    int videoDuration = 0;
+    int startTime = 0;
+    int endTime = 0;
+
+    boolean isPrepared = false;
+    boolean isTrimPreview = false;
+    boolean userSeeking = false;
 
     int dp(int value) {
-        return (int)(value * getResources()
-            .getDisplayMetrics().density);
+        return (int) (value * getResources()
+                .getDisplayMetrics().density);
     }
 
     String formatTime(int ms) {
-        int total = ms / 1000;
+        int total = Math.max(0, ms / 1000);
         return String.format("%02d:%02d",
-            total / 60, total % 60);
+                total / 60, total % 60);
+    }
+
+    void addText(String value, int size) {
+        TextView text = new TextView(this);
+        text.setText(value);
+        text.setTextSize(size);
+        text.setTextColor(Color.WHITE);
+        text.setPadding(0, dp(10), 0, dp(10));
+        layout.addView(text);
+    }
+
+    void addButton(String value, Runnable action) {
+        Button button = new Button(this);
+        button.setText(value);
+        layout.addView(button);
+
+        button.setOnClickListener(v -> action.run());
     }
 
     void updateTrimText() {
+        if (trimText == null) return;
+
         trimText.setText(
-            "Start: " + formatTime(startTime) +
-            "     End: " + formatTime(endTime) +
-            "\nSelected Duration: " +
-            formatTime(Math.max(0, endTime - startTime))
+                "Start: " + formatTime(startTime)
+                + "\nEnd: " + formatTime(endTime)
+                + "\nSelected Duration: "
+                + formatTime(Math.max(0, endTime - startTime))
         );
     }
 
@@ -52,279 +79,328 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        getWindow().setStatusBarColor(Color.rgb(15,15,25));
-        getWindow().setNavigationBarColor(Color.rgb(15,15,25));
+        getWindow().setStatusBarColor(Color.rgb(15, 15, 20));
+        getWindow().setNavigationBarColor(Color.BLACK);
 
         ScrollView scroll = new ScrollView(this);
 
         layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(dp(18), dp(35), dp(18), dp(25));
-        layout.setBackgroundColor(Color.rgb(15,15,25));
+        layout.setPadding(dp(18), dp(25), dp(18), dp(30));
+        layout.setBackgroundColor(Color.rgb(18, 18, 25));
+
         scroll.addView(layout);
+        setContentView(scroll);
 
-        TextView title = new TextView(this);
-        title.setText("AI CLIP MASTER");
-        title.setTextSize(27);
-        title.setTextColor(Color.WHITE);
-        title.setTypeface(null, Typeface.BOLD);
-        layout.addView(title);
+        addText("AI CLIP MASTER", 27);
+        addText("Your AI Video Editing Studio", 14);
 
-        TextView subtitle = new TextView(this);
-        subtitle.setText("Your AI Video Editing Studio");
-        subtitle.setTextColor(Color.LTGRAY);
-        subtitle.setTextSize(14);
-        addView(subtitle, 8);
-
-        Button select = new Button(this);
-        select.setText("＋ SELECT VIDEO");
-        layout.addView(select);
-
-        select.setOnClickListener(v -> {
-            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            intent.setType("video/*");
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
-            startActivityForResult(intent, 100);
-        });
+        addButton("+ SELECT VIDEO", () -> selectVideo());
 
         selectedVideo = new TextView(this);
         selectedVideo.setText("No video selected");
         selectedVideo.setTextColor(Color.LTGRAY);
-        addView(selectedVideo, 12);
+        selectedVideo.setPadding(0, dp(10), 0, dp(10));
+        layout.addView(selectedVideo);
 
-        addHeading("VIDEO PREVIEW");
+        textureView = new TextureView(this);
+        textureView.setBackgroundColor(Color.BLACK);
+        textureView.setSurfaceTextureListener(
+                new TextureView.SurfaceTextureListener() {
 
-        videoView = new VideoView(this);
-        videoView.setBackgroundColor(Color.BLACK);
+            @Override
+            public void onSurfaceTextureAvailable(
+                    SurfaceTexture surface, int width, int height) {
 
-        layout.addView(videoView,
-            new LinearLayout.LayoutParams(-1, dp(220)));
+                videoSurface = new Surface(surface);
+                preparePlayer();
+            }
+
+            @Override
+            public void onSurfaceTextureSizeChanged(
+                    SurfaceTexture surface, int width, int height) {
+            }
+
+            @Override
+            public boolean onSurfaceTextureDestroyed(
+                    SurfaceTexture surface) {
+
+                if (mediaPlayer != null) {
+                    mediaPlayer.setSurface(null);
+                }
+
+                if (videoSurface != null) {
+                    videoSurface.release();
+                    videoSurface = null;
+                }
+
+                return true;
+            }
+
+            @Override
+            public void onSurfaceTextureUpdated(
+                    SurfaceTexture surface) {
+            }
+        });
+
+        LinearLayout.LayoutParams videoParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        dp(230));
+
+        videoParams.setMargins(0, dp(12), 0, dp(12));
+        layout.addView(textureView, videoParams);
+
+        addButton("PLAY / PAUSE", () -> togglePlayback());
 
         durationText = new TextView(this);
         durationText.setText("00:00 / 00:00");
         durationText.setTextColor(Color.WHITE);
-        addView(durationText, 8);
+        layout.addView(durationText);
 
         seekBar = new SeekBar(this);
         seekBar.setMax(1000);
         layout.addView(seekBar);
 
         seekBar.setOnSeekBarChangeListener(
-            new SeekBar.OnSeekBarChangeListener() {
+                new SeekBar.OnSeekBarChangeListener() {
 
-                public void onProgressChanged(
+            @Override
+            public void onProgressChanged(
                     SeekBar bar, int progress, boolean fromUser) {
 
-                    if (fromUser && videoDuration > 0) {
-                        videoView.seekTo(
-                            videoDuration * progress / 1000
-                        );
-                    }
+                if (fromUser && isPrepared && mediaPlayer != null) {
+                    int position = videoDuration * progress / 1000;
+                    durationText.setText(
+                            formatTime(position) + " / "
+                            + formatTime(videoDuration));
                 }
-
-                public void onStartTrackingTouch(SeekBar bar) {}
-                public void onStopTrackingTouch(SeekBar bar) {}
             }
-        );
 
-        LinearLayout controls = new LinearLayout(this);
-        controls.setGravity(Gravity.CENTER);
+            @Override
+            public void onStartTrackingTouch(SeekBar bar) {
+                userSeeking = true;
+            }
 
-        Button play = new Button(this);
-        play.setText("PLAY");
-        controls.addView(play);
+            @Override
+            public void onStopTrackingTouch(SeekBar bar) {
+                userSeeking = false;
 
-        Button pause = new Button(this);
-        pause.setText("PAUSE");
-        controls.addView(pause);
-
-        layout.addView(controls);
-
-        play.setOnClickListener(v -> {
-            if (videoUri != null) videoView.start();
+                if (isPrepared && mediaPlayer != null) {
+                    int position =
+                            videoDuration * bar.getProgress() / 1000;
+                    mediaPlayer.seekTo(position);
+                }
+            }
         });
 
-        pause.setOnClickListener(v -> {
-            if (videoUri != null) videoView.pause();
-        });
-
-        addHeading("VIDEO TRIMMER");
+        addText("VIDEO TRIM CONTROLS", 20);
 
         trimText = new TextView(this);
         trimText.setTextColor(Color.WHITE);
-        trimText.setTextSize(16);
-        trimText.setPadding(0, dp(10), 0, dp(10));
+        trimText.setTextSize(15);
         layout.addView(trimText);
-        updateTrimText();
 
-        Button setStart = new Button(this);
-        setStart.setText("SET START TIME");
-        layout.addView(setStart);
-
-        setStart.setOnClickListener(v -> {
-            if (videoUri != null) {
-                startTime = videoView.getCurrentPosition();
-
-                if (startTime >= endTime) {
-                    endTime = videoDuration;
-                }
-
+        addButton("SET START TIME", () -> {
+            if (isPrepared && mediaPlayer != null) {
+                startTime = mediaPlayer.getCurrentPosition();
+                if (endTime < startTime) endTime = videoDuration;
                 updateTrimText();
             }
         });
 
-        Button setEnd = new Button(this);
-        setEnd.setText("SET END TIME");
-        layout.addView(setEnd);
-
-        setEnd.setOnClickListener(v -> {
-            if (videoUri != null) {
-                endTime = videoView.getCurrentPosition();
-
-                if (endTime <= startTime) {
-                    Toast.makeText(this,
-                        "End time must be after start time",
-                        Toast.LENGTH_SHORT).show();
-                } else {
-                    updateTrimText();
-                }
+        addButton("SET END TIME", () -> {
+            if (isPrepared && mediaPlayer != null) {
+                endTime = mediaPlayer.getCurrentPosition();
+                if (endTime < startTime) startTime = 0;
+                updateTrimText();
             }
         });
 
-        Button previewTrim = new Button(this);
-        previewTrim.setText("PREVIEW SELECTED PART");
-        layout.addView(previewTrim);
-
-        previewTrim.setOnClickListener(v -> {
-            if (videoUri != null && endTime > startTime) {
-                videoView.seekTo(startTime);
-                videoView.start();
-
-                Toast.makeText(this,
-                    "Preview starts from selected time",
-                    Toast.LENGTH_SHORT).show();
+        addButton("PREVIEW SELECTED PART", () -> {
+            if (!isPrepared || mediaPlayer == null) {
+                showMessage("Please select a video first");
+                return;
             }
+
+            if (endTime <= startTime) {
+                showMessage("Please set valid start and end times");
+                return;
+            }
+
+            isTrimPreview = true;
+            mediaPlayer.seekTo(startTime);
+            mediaPlayer.start();
         });
 
-        addHeading("VIDEO TOOLS");
-        addTool("AI Auto Clips", "Create short clips");
-        addTool("AI Captions", "Generate subtitles");
-        addTool("Viral Clip Detection", "Find interesting moments");
-        addTool("Silence Removal", "Remove silent portions");
-        addTool("AI Reframe", "Vertical and horizontal formats");
-        addTool("Video Editor", "Edit your selected video");
-        addTool("Export Video", "Save your edited video");
+        addText("AI VIDEO TOOLS", 21);
+        addText("AI Auto Clips  •  Coming Soon", 16);
+        addText("AI Captions  •  Coming Soon", 16);
+        addText("Viral Clip Detection  •  Coming Soon", 16);
+        addText("Silence Removal  •  Coming Soon", 16);
+        addText("AI Reframe  •  Coming Soon", 16);
+        addText("Video Editor  •  In Development", 16);
+        addText("Export Video  •  Coming Soon", 16);
 
-        TextView footer = new TextView(this);
-        footer.setText("AI CLIP MASTER • Version 1.0");
-        footer.setTextColor(Color.GRAY);
-        footer.setGravity(Gravity.CENTER);
-        footer.setPadding(0, dp(25), 0, dp(15));
-        layout.addView(footer);
-
-        updateTimeline = new Runnable() {
-            public void run() {
-                if (videoUri != null && videoDuration > 0) {
-                    int position = videoView.getCurrentPosition();
-
-                    seekBar.setProgress(
-                        position * 1000 / videoDuration
-                    );
-
-                    durationText.setText(
-                        formatTime(position) + " / " +
-                        formatTime(videoDuration)
-                    );
-                }
-
-                handler.postDelayed(this, 500);
-            }
-        };
+        updateTrimText();
 
         handler.post(updateTimeline);
-
-        setContentView(scroll);
     }
 
-    void addView(TextView view, int top) {
-        LinearLayout.LayoutParams params =
-            new LinearLayout.LayoutParams(-1, -2);
-        params.topMargin = dp(top);
-        layout.addView(view, params);
-    }
+    void selectVideo() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.setType("video/*");
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+        );
 
-    void addHeading(String text) {
-        TextView heading = new TextView(this);
-        heading.setText(text);
-        heading.setTextColor(Color.WHITE);
-        heading.setTextSize(20);
-        heading.setTypeface(null, Typeface.BOLD);
-        heading.setPadding(0, dp(22), 0, dp(10));
-        layout.addView(heading);
-    }
-
-    void addTool(String name, String description) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(14), dp(12), dp(14), dp(12));
-        card.setBackgroundColor(Color.rgb(35,35,55));
-
-        LinearLayout.LayoutParams params =
-            new LinearLayout.LayoutParams(-1, -2);
-        params.setMargins(0, dp(6), 0, dp(6));
-
-        TextView heading = new TextView(this);
-        heading.setText(name);
-        heading.setTextColor(Color.WHITE);
-        heading.setTextSize(17);
-        heading.setTypeface(null, Typeface.BOLD);
-
-        TextView detail = new TextView(this);
-        detail.setText(description);
-        detail.setTextColor(Color.LTGRAY);
-        detail.setTextSize(13);
-
-        card.addView(heading);
-        card.addView(detail);
-        layout.addView(card, params);
+        startActivityForResult(intent, 100);
     }
 
     @Override
     protected void onActivityResult(
-        int requestCode, int resultCode, Intent data) {
+            int requestCode, int resultCode, Intent data) {
 
         super.onActivityResult(requestCode, resultCode, data);
 
-        if (requestCode == 100 &&
-            resultCode == RESULT_OK && data != null) {
+        if (requestCode == 100 && resultCode == RESULT_OK
+                && data != null && data.getData() != null) {
 
             videoUri = data.getData();
 
             try {
                 getContentResolver().takePersistableUriPermission(
-                    videoUri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        videoUri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
                 );
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
 
-            selectedVideo.setText("Video selected successfully!");
+            selectedVideo.setText("Selected: " + videoUri.getLastPathSegment());
 
-            videoView.setVideoURI(videoUri);
-            videoView.setZOrderOnTop(false);
-            videoView.setZOrderMediaOverlay(true);
+            releasePlayer();
+            isPrepared = false;
+            videoDuration = 0;
+            startTime = 0;
+            endTime = 0;
 
-            videoView.setOnPreparedListener(mp -> {
-                videoDuration = videoView.getDuration();
+            seekBar.setProgress(0);
+            durationText.setText("00:00 / 00:00");
+            updateTrimText();
+
+            preparePlayer();
+        }
+    }
+
+    void preparePlayer() {
+        if (videoUri == null || videoSurface == null) return;
+
+        releasePlayer();
+
+        try {
+            mediaPlayer = new MediaPlayer();
+            isPrepared = false;
+
+            mediaPlayer.setDataSource(this, videoUri);
+            mediaPlayer.setSurface(videoSurface);
+
+            mediaPlayer.setOnPreparedListener(mp -> {
+                isPrepared = true;
+                videoDuration = mp.getDuration();
                 startTime = 0;
                 endTime = videoDuration;
 
                 seekBar.setProgress(0);
                 durationText.setText(
-                    "00:00 / " + formatTime(videoDuration)
-                );
+                        "00:00 / " + formatTime(videoDuration));
 
                 updateTrimText();
+                showMessage("Video ready");
             });
+
+            mediaPlayer.setOnCompletionListener(mp -> {
+                isTrimPreview = false;
+                mp.pause();
+            });
+
+            mediaPlayer.setOnErrorListener((mp, what, extra) -> {
+                showMessage("Video playback error. Try another MP4.");
+                return true;
+            });
+
+            mediaPlayer.prepareAsync();
+
+        } catch (Exception e) {
+            showMessage("Unable to load video: " + e.getMessage());
+        }
+    }
+
+    void togglePlayback() {
+        if (!isPrepared || mediaPlayer == null) {
+            showMessage("Please select a video first");
+            return;
+        }
+
+        if (mediaPlayer.isPlaying()) {
+            mediaPlayer.pause();
+            isTrimPreview = false;
+        } else {
+            mediaPlayer.start();
+        }
+    }
+
+    Runnable updateTimeline = new Runnable() {
+        @Override
+        public void run() {
+
+            if (isPrepared && mediaPlayer != null) {
+                try {
+                    int position = mediaPlayer.getCurrentPosition();
+
+                    if (isTrimPreview && position >= endTime) {
+                        mediaPlayer.pause();
+                        mediaPlayer.seekTo(startTime);
+                        isTrimPreview = false;
+                        position = startTime;
+                    }
+
+                    if (!userSeeking) {
+                        seekBar.setProgress(
+                                videoDuration > 0
+                                ? position * 1000 / videoDuration : 0
+                        );
+                    }
+
+                    durationText.setText(
+                            formatTime(position) + " / "
+                            + formatTime(videoDuration)
+                    );
+
+                } catch (Exception ignored) {
+                }
+            }
+
+            handler.postDelayed(this, 300);
+        }
+    };
+
+    void showMessage(String message) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+    }
+
+    void releasePlayer() {
+        isPrepared = false;
+
+        if (mediaPlayer != null) {
+            try {
+                mediaPlayer.stop();
+            } catch (Exception ignored) {
+            }
+
+            mediaPlayer.release();
+            mediaPlayer = null;
         }
     }
 
@@ -332,14 +408,21 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
 
-        if (videoView != null && videoView.isPlaying()) {
-            videoView.pause();
+        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+            mediaPlayer.pause();
         }
     }
 
     @Override
     protected void onDestroy() {
         handler.removeCallbacks(updateTimeline);
+        releasePlayer();
+
+        if (videoSurface != null) {
+            videoSurface.release();
+            videoSurface = null;
+        }
+
         super.onDestroy();
     }
-}
+        }
