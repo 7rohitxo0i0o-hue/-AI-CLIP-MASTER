@@ -311,6 +311,7 @@ public class MainActivity extends Activity {
 
             videoView.setVideoURI(videoUri);
             videoView.setZOrderOnTop(false);
+            videoView.setZOrderMediaOverlay(true);
 
             videoView.setOnPreparedListener(mp -> {
                 videoDuration = videoView.getDuration();
