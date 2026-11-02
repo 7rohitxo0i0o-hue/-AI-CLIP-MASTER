@@ -310,6 +310,7 @@ public class MainActivity extends Activity {
             selectedVideo.setText("Video selected successfully!");
 
             videoView.setVideoURI(videoUri);
+            videoView.setZOrderOnTop(false);
 
             videoView.setOnPreparedListener(mp -> {
                 videoDuration = videoView.getDuration();
