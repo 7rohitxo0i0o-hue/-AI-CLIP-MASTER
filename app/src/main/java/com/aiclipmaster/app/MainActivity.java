@@ -3,26 +3,39 @@ package com.aiclipmaster.app;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.os.Handler;
 import android.content.Intent;
 import android.net.Uri;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.view.Gravity;
-import android.view.View;
-import android.widget.*;
 import android.view.ViewGroup;
 import android.view.WindowManager;
-import android.media.MediaPlayer;
+import android.widget.*;
+import android.view.View;
 
 public class MainActivity extends Activity {
 
     LinearLayout layout;
     TextView selectedVideo, durationText;
     VideoView videoView;
+    SeekBar seekBar;
     Uri videoUri;
 
+    Handler handler = new Handler();
+    Runnable updateTimeline;
+
     int dp(int value) {
-        return (int)(value * getResources().getDisplayMetrics().density);
+        return (int)(value * getResources()
+            .getDisplayMetrics().density);
+    }
+
+    String formatTime(int ms) {
+        int total = ms / 1000;
+        int min = total / 60;
+        int sec = total % 60;
+
+        return String.format("%02d:%02d", min, sec);
     }
 
     @Override
@@ -31,10 +44,6 @@ public class MainActivity extends Activity {
 
         getWindow().setStatusBarColor(Color.rgb(15,15,25));
         getWindow().setNavigationBarColor(Color.rgb(15,15,25));
-
-        getWindow().clearFlags(
-            WindowManager.LayoutParams.FLAG_FULLSCREEN
-        );
 
         ScrollView scroll = new ScrollView(this);
 
@@ -82,20 +91,58 @@ public class MainActivity extends Activity {
 
         LinearLayout.LayoutParams videoParams =
             new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(220)
+                -1, dp(220)
             );
+
         videoParams.topMargin = dp(10);
         layout.addView(videoView, videoParams);
 
         durationText = new TextView(this);
-        durationText.setText("Duration: --");
+        durationText.setText("00:00 / 00:00");
         durationText.setTextColor(Color.WHITE);
         durationText.setTextSize(14);
         addView(durationText, 8);
 
+        seekBar = new SeekBar(this);
+        layout.addView(seekBar);
+
+        seekBar.setMax(1000);
+
+        seekBar.setOnSeekBarChangeListener(
+            new SeekBar.OnSeekBarChangeListener() {
+
+                public void onProgressChanged(
+                    SeekBar bar, int progress,
+                    boolean fromUser) {
+
+                    if (fromUser && videoView.isPlaying()) {
+                        int duration = videoView.getDuration();
+
+                        if (duration > 0) {
+                            int position =
+                                (duration * progress) / 1000;
+
+                            videoView.seekTo(position);
+                        }
+                    } else if (fromUser) {
+                        int duration = videoView.getDuration();
+
+                        if (duration > 0) {
+                            videoView.seekTo(
+                                duration * progress / 1000
+                            );
+                        }
+                    }
+                }
+
+                public void onStartTrackingTouch(SeekBar bar) {}
+
+                public void onStopTrackingTouch(SeekBar bar) {}
+            }
+        );
+
         LinearLayout controls = new LinearLayout(this);
         controls.setGravity(Gravity.CENTER);
-        controls.setOrientation(LinearLayout.HORIZONTAL);
 
         Button play = new Button(this);
         play.setText("PLAY");
@@ -108,16 +155,44 @@ public class MainActivity extends Activity {
         layout.addView(controls);
 
         play.setOnClickListener(v -> {
-            if (videoUri != null) videoView.start();
+            if (videoUri != null) {
+                videoView.start();
+            }
         });
 
         pause.setOnClickListener(v -> {
-            if (videoUri != null && videoView.isPlaying()) {
+            if (videoUri != null) {
                 videoView.pause();
             }
         });
 
+        updateTimeline = new Runnable() {
+            @Override
+            public void run() {
+                if (videoUri != null) {
+                    int duration = videoView.getDuration();
+                    int position = videoView.getCurrentPosition();
+
+                    if (duration > 0) {
+                        seekBar.setProgress(
+                            position * 1000 / duration
+                        );
+
+                        durationText.setText(
+                            formatTime(position) + " / " +
+                            formatTime(duration)
+                        );
+                    }
+                }
+
+                handler.postDelayed(this, 500);
+            }
+        };
+
+        handler.post(updateTimeline);
+
         addHeading("VIDEO TOOLS");
+
         addTool("AI Auto Clips", "Create short clips");
         addTool("AI Captions", "Generate subtitles");
         addTool("Viral Clip Detection", "Find interesting moments");
@@ -139,6 +214,7 @@ public class MainActivity extends Activity {
     void addView(TextView view, int top) {
         LinearLayout.LayoutParams params =
             new LinearLayout.LayoutParams(-1, -2);
+
         params.topMargin = dp(top);
         layout.addView(view, params);
     }
@@ -161,6 +237,7 @@ public class MainActivity extends Activity {
 
         LinearLayout.LayoutParams params =
             new LinearLayout.LayoutParams(-1, -2);
+
         params.setMargins(0, dp(6), 0, dp(6));
 
         TextView heading = new TextView(this);
@@ -180,12 +257,13 @@ public class MainActivity extends Activity {
     }
 
     @Override
-    protected void onActivityResult(int requestCode, int resultCode,
-                                    Intent data) {
+    protected void onActivityResult(
+        int requestCode, int resultCode, Intent data) {
+
         super.onActivityResult(requestCode, resultCode, data);
 
-        if (requestCode == 100 && resultCode == RESULT_OK
-                && data != null) {
+        if (requestCode == 100 &&
+            resultCode == RESULT_OK && data != null) {
 
             videoUri = data.getData();
 
@@ -201,14 +279,12 @@ public class MainActivity extends Activity {
             videoView.setVideoURI(videoUri);
 
             videoView.setOnPreparedListener(mp -> {
-                int milliseconds = mp.getDuration();
-                int seconds = milliseconds / 1000;
-                int minutes = seconds / 60;
-                seconds = seconds % 60;
+                int duration = videoView.getDuration();
+
+                seekBar.setProgress(0);
 
                 durationText.setText(
-                    "Duration: " + minutes + ":" +
-                    String.format("%02d", seconds)
+                    "00:00 / " + formatTime(duration)
                 );
             });
         }
@@ -217,8 +293,15 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+
         if (videoView != null && videoView.isPlaying()) {
             videoView.pause();
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        handler.removeCallbacks(updateTimeline);
+        super.onDestroy();
     }
 }
