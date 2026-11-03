@@ -118,7 +118,6 @@ public class MainActivity extends Activity {
         layout.addView(exportButton);
         Button sceneButton = new Button(this);
 sceneButton.setText("AI Scene Detection");
-layout.addView(sceneButton);
 
 sceneResults = new TextView(this);
 sceneResults.setText("Detected scenes will appear here");
@@ -130,6 +129,7 @@ layout.addView(bestMomentsButton);
 TextView bestMomentsResults = new TextView(this);
 bestMomentsResults.setText("Best moments will appear here");
 layout.addView(bestMomentsResults);
+        layout.addView(sceneResults);
 
 bestMomentsButton.setOnClickListener(v -> {
     if (selectedVideoUri == null) {
