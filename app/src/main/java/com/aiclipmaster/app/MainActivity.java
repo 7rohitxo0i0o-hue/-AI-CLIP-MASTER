@@ -6,6 +6,9 @@ import android.content.ContentValues;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.graphics.Bitmap;
+import android.media.MediaMetadataRetriever;
+import java.util.ArrayList;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Build;
@@ -43,6 +46,7 @@ public class MainActivity extends Activity {
     private SeekBar startSlider, endSlider;
 
     private Uri selectedVideoUri;
+    private TextView sceneResults;
     private long durationMs = 0;
     private long startMs = 0;
     private long endMs = 0;
@@ -112,6 +116,15 @@ public class MainActivity extends Activity {
         Button exportButton = new Button(this);
         exportButton.setText("Export Video");
         layout.addView(exportButton);
+        Button sceneButton = new Button(this);
+sceneButton.setText("AI Scene Detection");
+layout.addView(sceneButton);
+
+sceneResults = new TextView(this);
+sceneResults.setText("Detected scenes will appear here");
+layout.addView(sceneResults);
+
+sceneButton.setOnClickListener(v -> detectScenes());
 
         setContentView(layout);
 
@@ -391,5 +404,102 @@ public class MainActivity extends Activity {
         }
 
         super.onDestroy();
+    }
+    private void detectScenes() {
+    if (selectedVideoUri == null) {
+        Toast.makeText(this, "Please select a video first",
+                Toast.LENGTH_SHORT).show();
+        return;
+    }
+
+    sceneResults.setText("Detecting scenes...");
+
+    new Thread(() -> {
+        MediaMetadataRetriever retriever =
+                new MediaMetadataRetriever();
+
+        ArrayList<String> scenes = new ArrayList<>();
+
+        try {
+            retriever.setDataSource(this, selectedVideoUri);
+
+            String durationText = retriever.extractMetadata(
+                    MediaMetadataRetriever.METADATA_KEY_DURATION);
+
+            long duration = Long.parseLong(durationText);
+
+            int[] previous = null;
+
+            for (long time = 0; time < duration; time += 1000) {
+                Bitmap frame = retriever.getFrameAtTime(
+                        time * 1000,
+                        MediaMetadataRetriever.OPTION_CLOSEST);
+
+                if (frame == null) continue;
+
+                Bitmap small = Bitmap.createScaledBitmap(
+                        frame, 32, 32, true);
+
+                int[] pixels = new int[32 * 32];
+                small.getPixels(pixels, 0, 32, 0, 0, 32, 32);
+
+                if (previous != null) {
+                    long difference = 0;
+
+                    for (int i = 0; i < pixels.length; i++) {
+                        int r1 = (pixels[i] >> 16) & 255;
+                        int g1 = (pixels[i] >> 8) & 255;
+                        int b1 = pixels[i] & 255;
+
+                        int r2 = (previous[i] >> 16) & 255;
+                        int g2 = (previous[i] >> 8) & 255;
+                        int b2 = previous[i] & 255;
+
+                        difference += Math.abs(r1 - r2);
+                        difference += Math.abs(g1 - g2);
+                        difference += Math.abs(b1 - b2);
+                    }
+
+                    double average = difference /
+                            (double) (pixels.length * 3);
+
+                    if (average > 45) {
+                        scenes.add(formatTime(time));
+                    }
+                }
+
+                previous = pixels;
+
+                if (small != frame) small.recycle();
+                frame.recycle();
+            }
+
+        } catch (Exception e) {
+            scenes.add("Detection error: " + e.getMessage());
+        } finally {
+            try {
+                retriever.release();
+            } catch (Exception ignored) {}
+        }
+
+        runOnUiThread(() -> {
+            if (scenes.isEmpty()) {
+                sceneResults.setText(
+                        "No major scene changes detected.");
+            } else {
+                StringBuilder result = new StringBuilder(
+                        "Detected Scene Changes:\n");
+
+                for (String time : scenes) {
+                    result.append("• ")
+                            .append(time)
+                            .append("\n");
+                }
+
+                sceneResults.setText(result.toString());
+            }
+        });
+
+    }).start();
     }
 }
