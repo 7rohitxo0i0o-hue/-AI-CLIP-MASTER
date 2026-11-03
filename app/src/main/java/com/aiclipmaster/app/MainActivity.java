@@ -131,8 +131,9 @@ bestMomentsResults.setText("Best moments will appear here");
 layout.addView(bestMomentsResults);
         layout.addView(sceneResults);
 
+
 bestMomentsButton.setOnClickListener(v -> {
-    if (selectedVideoUri == null) {
+    if (selectedVideoUri == null || durationMs <= 0) {
         Toast.makeText(this, "Please select a video first",
                 Toast.LENGTH_SHORT).show();
         return;
@@ -146,45 +147,77 @@ bestMomentsButton.setOnClickListener(v -> {
         return;
     }
 
-    StringBuilder result = new StringBuilder();
-    result.append("Potential Highlight Clips:\n");
+    long totalSeconds = durationMs / 1000;
+    long targetLength = Math.min(60, totalSeconds);
+
+    ArrayList<Long> sceneTimes = new ArrayList<>();
 
     String[] lines = sceneText.split("\n");
-    int count = 0;
 
     for (String line : lines) {
         if (line.startsWith("• ")) {
             try {
-                String time = line.substring(2).trim();
-                String[] parts = time.split(":");
+                String[] parts = line.substring(2).trim().split(":");
 
-                long seconds =
-                        Long.parseLong(parts[0]) * 60
+                long seconds = Long.parseLong(parts[0]) * 60
                         + Long.parseLong(parts[1]);
 
-                long clipStart = Math.max(0, seconds - 5);
-                long clipEnd = Math.min(
-                        durationMs / 1000, seconds + 5);
-
-                result.append("Clip ")
-                        .append(++count)
-                        .append(": ")
-                        .append(formatTime(clipStart * 1000))
-                        .append(" - ")
-                        .append(formatTime(clipEnd * 1000))
-                        .append("\n");
+                sceneTimes.add(seconds);
 
             } catch (Exception ignored) {
             }
         }
     }
 
-    if (count == 0) {
-        result.append("No highlight candidates found.");
+    if (sceneTimes.isEmpty()) {
+        bestMomentsResults.setText(
+                "No highlight candidates found.");
+        return;
+    }
+
+    ArrayList<long[]> clips = new ArrayList<>();
+
+    for (long seconds : sceneTimes) {
+
+        long clipStart = Math.max(0, seconds - 30);
+        long clipEnd = Math.min(
+                totalSeconds, clipStart + targetLength);
+
+        clipStart = Math.max(0, clipEnd - targetLength);
+
+        boolean overlapping = false;
+
+        for (long[] existing : clips) {
+            if (clipStart < existing[1]
+                    && clipEnd > existing[0]) {
+                overlapping = true;
+                break;
+            }
+        }
+
+        if (!overlapping) {
+            clips.add(new long[]{clipStart, clipEnd});
+        }
+    }
+
+    StringBuilder result = new StringBuilder();
+    result.append("60-Second Smart Highlights:\n\n");
+
+    for (int i = 0; i < clips.size(); i++) {
+        long[] clip = clips.get(i);
+
+        result.append("Clip ")
+                .append(i + 1)
+                .append(": ")
+                .append(formatTime(clip[0] * 1000))
+                .append(" - ")
+                .append(formatTime(clip[1] * 1000))
+                .append("\n");
     }
 
     bestMomentsResults.setText(result.toString());
 });
+        
 
 sceneButton.setOnClickListener(v -> detectScenes());
 
