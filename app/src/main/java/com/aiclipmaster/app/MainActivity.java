@@ -2,19 +2,36 @@
 package com.aiclipmaster.app;
 
 import android.app.Activity;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Build;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
+import androidx.media3.transformer.Composition;
+import androidx.media3.transformer.EditedMediaItem;
+import androidx.media3.transformer.ExportException;
+import androidx.media3.transformer.ExportResult;
+import androidx.media3.transformer.Transformer;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.OutputStream;
+import java.io.InputStream;
 
 public class MainActivity extends Activity {
 
@@ -25,9 +42,27 @@ public class MainActivity extends Activity {
     private TextView fileName, startLabel, endLabel;
     private SeekBar startSlider, endSlider;
 
+    private Uri selectedVideoUri;
     private long durationMs = 0;
     private long startMs = 0;
     private long endMs = 0;
+
+    private Transformer transformer;
+    private File exportFile;
+
+    private final Handler handler = new Handler(Looper.getMainLooper());
+
+    private final Runnable endMonitor = new Runnable() {
+        @Override
+        public void run() {
+            if (player != null && player.isPlaying()
+                    && endMs > 0 && player.getCurrentPosition() >= endMs) {
+                player.pause();
+                player.seekTo(endMs);
+            }
+            handler.postDelayed(this, 200);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -68,25 +103,31 @@ public class MainActivity extends Activity {
 
         endSlider = new SeekBar(this);
         endSlider.setMax(1000);
-        endSlider.setProgress(1000);
         layout.addView(endSlider);
 
         Button previewButton = new Button(this);
         previewButton.setText("Preview Selected Part");
         layout.addView(previewButton);
 
+        Button exportButton = new Button(this);
+        exportButton.setText("Export Video");
+        layout.addView(exportButton);
+
         setContentView(layout);
 
         player = new ExoPlayer.Builder(this).build();
         playerView.setPlayer(player);
 
+        handler.post(endMonitor);
+
         player.addListener(new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_READY) {
-                    durationMs = player.getDuration();
+                    long duration = player.getDuration();
 
-                    if (durationMs > 0) {
+                    if (duration > 0) {
+                        durationMs = duration;
                         startMs = 0;
                         endMs = durationMs;
                         updateLabels();
@@ -111,10 +152,11 @@ public class MainActivity extends Activity {
                                          boolean fromUser) {
                 if (fromUser && durationMs > 0) {
                     startMs = durationMs * progress / 1000;
+
                     if (startMs >= endMs) {
                         startMs = Math.max(0, endMs - 1);
-                        updateSliderValues();
                     }
+
                     updateLabels();
                 }
             }
@@ -133,10 +175,11 @@ public class MainActivity extends Activity {
                                          boolean fromUser) {
                 if (fromUser && durationMs > 0) {
                     endMs = durationMs * progress / 1000;
+
                     if (endMs <= startMs) {
                         endMs = Math.min(durationMs, startMs + 1);
-                        updateSliderValues();
                     }
+
                     updateLabels();
                 }
             }
@@ -149,29 +192,156 @@ public class MainActivity extends Activity {
         });
 
         previewButton.setOnClickListener(v -> {
-            if (durationMs > 0 && player != null) {
+            if (selectedVideoUri != null && durationMs > 0) {
                 player.seekTo(startMs);
                 player.play();
+            } else {
+                Toast.makeText(this, "Select a video first",
+                        Toast.LENGTH_SHORT).show();
             }
         });
+
+        exportButton.setOnClickListener(v -> exportVideo());
     }
 
     private void updateLabels() {
         startLabel.setText("Start: " + formatTime(startMs));
         endLabel.setText("End: " + formatTime(endMs));
-        updateSliderValues();
-    }
 
-    private void updateSliderValues() {
         if (durationMs > 0) {
-            startSlider.setProgress((int) (startMs * 1000 / durationMs));
-            endSlider.setProgress((int) (endMs * 1000 / durationMs));
+            startSlider.setProgress(
+                    (int) (startMs * 1000 / durationMs));
+            endSlider.setProgress(
+                    (int) (endMs * 1000 / durationMs));
         }
     }
 
     private String formatTime(long ms) {
         long seconds = ms / 1000;
         return String.format("%02d:%02d", seconds / 60, seconds % 60);
+    }
+
+    private void exportVideo() {
+        if (selectedVideoUri == null || durationMs <= 0) {
+            Toast.makeText(this, "Please select a video first",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (startMs >= endMs) {
+            Toast.makeText(this, "Invalid Start or End time",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        player.pause();
+
+        try {
+            File outputDirectory = getCacheDir();
+            exportFile = File.createTempFile(
+                    "trimmed_video_", ".mp4", outputDirectory);
+
+            MediaItem mediaItem = new MediaItem.Builder()
+                    .setUri(selectedVideoUri)
+                    .setClippingConfiguration(
+                            new MediaItem.ClippingConfiguration.Builder()
+                                    .setStartPositionMs(startMs)
+                                    .setEndPositionMs(endMs)
+                                    .build())
+                    .build();
+
+            EditedMediaItem editedItem =
+                    new EditedMediaItem.Builder(mediaItem).build();
+
+            transformer = new Transformer.Builder(this)
+                    .addListener(new Transformer.Listener() {
+                        @Override
+                        public void onCompleted(
+                                Composition composition,
+                                ExportResult result) {
+                            runOnUiThread(() -> {
+                                try {
+                                    saveToGallery(exportFile);
+                                } catch (Exception e) {
+                                    Toast.makeText(MainActivity.this,
+                                            "Could not save video",
+                                            Toast.LENGTH_LONG).show();
+                                }
+                            });
+                        }
+
+                        @Override
+                        public void onError(
+                                Composition composition,
+                                ExportResult result,
+                                ExportException exception) {
+                            runOnUiThread(() ->
+                                    Toast.makeText(MainActivity.this,
+                                            "Export failed: "
+                                                    + exception.getMessage(),
+                                            Toast.LENGTH_LONG).show());
+                        }
+                    })
+                    .build();
+
+            Toast.makeText(this, "Video Export Started",
+                    Toast.LENGTH_SHORT).show();
+
+            transformer.start(editedItem, exportFile.getAbsolutePath());
+
+        } catch (Exception e) {
+            Toast.makeText(this, "Error: " + e.getMessage(),
+                    Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void saveToGallery(File sourceFile) throws Exception {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Video.Media.DISPLAY_NAME,
+                    "AI_CLIP_" + System.currentTimeMillis() + ".mp4");
+            values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
+            values.put(MediaStore.Video.Media.RELATIVE_PATH,
+                    Environment.DIRECTORY_MOVIES + "/AI CLIP MASTER");
+            values.put(MediaStore.Video.Media.IS_PENDING, 1);
+
+            Uri galleryUri = getContentResolver().insert(
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values);
+
+            if (galleryUri == null) {
+                throw new Exception("Gallery save failed");
+            }
+
+            try (InputStream input = new FileInputStream(sourceFile);
+                 OutputStream output =
+                         getContentResolver().openOutputStream(galleryUri)) {
+
+                if (output == null) {
+                    throw new Exception("Cannot open Gallery file");
+                }
+
+                byte[] buffer = new byte[8192];
+                int length;
+
+                while ((length = input.read(buffer)) != -1) {
+                    output.write(buffer, 0, length);
+                }
+            }
+
+            ContentValues completed = new ContentValues();
+            completed.put(MediaStore.Video.Media.IS_PENDING, 0);
+            getContentResolver().update(
+                    galleryUri, completed, null, null);
+
+            Toast.makeText(this,
+                    "Export Complete! Check Movies/AI CLIP MASTER",
+                    Toast.LENGTH_LONG).show();
+
+        } else {
+            Toast.makeText(this,
+                    "Exported to: " + sourceFile.getAbsolutePath(),
+                    Toast.LENGTH_LONG).show();
+        }
     }
 
     @Override
@@ -182,11 +352,12 @@ public class MainActivity extends Activity {
         if (requestCode == PICK_VIDEO && resultCode == RESULT_OK
                 && data != null && data.getData() != null) {
 
-            Uri videoUri = data.getData();
+            selectedVideoUri = data.getData();
 
             try {
                 getContentResolver().takePersistableUriPermission(
-                        videoUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        selectedVideoUri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION);
             } catch (SecurityException ignored) {}
 
             fileName.setText("Video selected successfully");
@@ -195,24 +366,30 @@ public class MainActivity extends Activity {
             startMs = 0;
             endMs = 0;
 
-            MediaItem item = MediaItem.fromUri(videoUri);
-            player.setMediaItem(item);
+            player.setMediaItem(MediaItem.fromUri(selectedVideoUri));
             player.prepare();
             player.play();
         }
     }
 
     private int dp(int value) {
-        return (int) (value * getResources().getDisplayMetrics().density);
+        return (int) (value * getResources()
+                .getDisplayMetrics().density);
     }
 
     @Override
     protected void onDestroy() {
-        super.onDestroy();
+        handler.removeCallbacks(endMonitor);
+
+        if (transformer != null) {
+            transformer.cancel();
+        }
 
         if (player != null) {
             player.release();
             player = null;
         }
+
+        super.onDestroy();
     }
 }
