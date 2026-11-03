@@ -118,6 +118,7 @@ public class MainActivity extends Activity {
         layout.addView(exportButton);
         Button sceneButton = new Button(this);
 sceneButton.setText("AI Scene Detection");
+        layout.addView(sceneButton);
 
 sceneResults = new TextView(this);
 sceneResults.setText("Detected scenes will appear here");
