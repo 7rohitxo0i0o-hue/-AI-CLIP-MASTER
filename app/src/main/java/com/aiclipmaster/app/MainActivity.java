@@ -7,14 +7,19 @@ import android.content.Intent;
 import android.net.Uri;
 import android.graphics.Color;
 import android.view.Gravity;
+import android.view.ViewGroup;
 import android.widget.*;
 import android.database.Cursor;
 import android.provider.OpenableColumns;
+import android.media.MediaPlayer;
+import android.widget.VideoView;
 
 public class MainActivity extends Activity {
 
     LinearLayout mainLayout;
-    TextView selectedText;
+    TextView selectedText, durationText;
+    VideoView videoView;
+
     static final int PICK_VIDEO = 100;
 
     @Override
@@ -23,20 +28,22 @@ public class MainActivity extends Activity {
 
         mainLayout = new LinearLayout(this);
         mainLayout.setOrientation(LinearLayout.VERTICAL);
-        mainLayout.setGravity(Gravity.CENTER);
-        mainLayout.setPadding(30, 30, 30, 30);
+        mainLayout.setPadding(25, 25, 25, 25);
         mainLayout.setBackgroundColor(Color.rgb(18, 18, 28));
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(mainLayout);
+        setContentView(scroll);
 
         TextView title = new TextView(this);
         title.setText("AI CLIP MASTER");
-        title.setTextSize(28);
+        title.setTextSize(27);
         title.setTextColor(Color.WHITE);
         title.setGravity(Gravity.CENTER);
         mainLayout.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Your AI Video Editing Studio");
-        subtitle.setTextSize(16);
+        subtitle.setText("Video Preview Studio");
         subtitle.setTextColor(Color.LTGRAY);
         subtitle.setGravity(Gravity.CENTER);
         mainLayout.addView(subtitle);
@@ -48,14 +55,44 @@ public class MainActivity extends Activity {
         selectedText = new TextView(this);
         selectedText.setText("No video selected");
         selectedText.setTextColor(Color.WHITE);
-        selectedText.setTextSize(16);
-        selectedText.setGravity(Gravity.CENTER);
-        selectedText.setPadding(10, 30, 10, 30);
+        selectedText.setPadding(5, 15, 5, 15);
         mainLayout.addView(selectedText);
+
+        videoView = new VideoView(this);
+        videoView.setBackgroundColor(Color.BLACK);
+
+        LinearLayout.LayoutParams videoParams =
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        600
+                );
+
+        mainLayout.addView(videoView, videoParams);
+
+        Button playButton = new Button(this);
+        playButton.setText("PLAY");
+        mainLayout.addView(playButton);
+
+        Button pauseButton = new Button(this);
+        pauseButton.setText("PAUSE");
+        mainLayout.addView(pauseButton);
+
+        durationText = new TextView(this);
+        durationText.setText("Duration: 00:00");
+        durationText.setTextColor(Color.WHITE);
+        mainLayout.addView(durationText);
 
         selectButton.setOnClickListener(v -> selectVideo());
 
-        setContentView(mainLayout);
+        playButton.setOnClickListener(v -> {
+            if (videoView.isPlaying()) {
+                videoView.start();
+            } else {
+                videoView.start();
+            }
+        });
+
+        pauseButton.setOnClickListener(v -> videoView.pause());
     }
 
     void selectVideo() {
@@ -79,36 +116,28 @@ public class MainActivity extends Activity {
 
             Uri videoUri = data.getData();
 
-            String fileName = "Selected Video";
+            selectedText.setText("Selected: " + videoUri.getLastPathSegment());
 
-            Cursor cursor = getContentResolver().query(
-                    videoUri,
-                    null,
-                    null,
-                    null,
-                    null
-            );
+            videoView.setVideoURI(videoUri);
 
-            if (cursor != null) {
-                try {
-                    int index = cursor.getColumnIndex(
-                            OpenableColumns.DISPLAY_NAME);
+            videoView.setOnPreparedListener(mp -> {
+                int seconds = mp.getDuration() / 1000;
+                durationText.setText(
+                        "Duration: " + String.format(
+                                "%02d:%02d",
+                                seconds / 60,
+                                seconds % 60
+                        )
+                );
+                videoView.start();
+            });
 
-                    if (cursor.moveToFirst() && index >= 0) {
-                        fileName = cursor.getString(index);
-                    }
-                } finally {
-                    cursor.close();
-                }
-            }
-
-            selectedText.setText(
-                    "Selected Video:\n" + fileName
-            );
-
-            Toast.makeText(this,
-                    "Video Selected Successfully",
-                    Toast.LENGTH_SHORT).show();
+            videoView.setOnErrorListener((mp, what, extra) -> {
+                Toast.makeText(this,
+                        "Video Preview Error",
+                        Toast.LENGTH_SHORT).show();
+                return true;
+            });
         }
     }
 }
