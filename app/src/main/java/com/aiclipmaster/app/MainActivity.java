@@ -8,19 +8,26 @@ import android.os.Bundle;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.SeekBar;
 import android.widget.TextView;
 
-
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 
 public class MainActivity extends Activity {
 
     private static final int PICK_VIDEO = 100;
+
     private ExoPlayer player;
     private PlayerView playerView;
-    private TextView fileName;
+    private TextView fileName, startLabel, endLabel;
+    private SeekBar startSlider, endSlider;
+
+    private long durationMs = 0;
+    private long startMs = 0;
+    private long endMs = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -45,12 +52,48 @@ public class MainActivity extends Activity {
 
         playerView = new PlayerView(this);
         layout.addView(playerView, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(250)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(220)));
+
+        startLabel = new TextView(this);
+        startLabel.setText("Start: 00:00");
+        layout.addView(startLabel);
+
+        startSlider = new SeekBar(this);
+        startSlider.setMax(1000);
+        layout.addView(startSlider);
+
+        endLabel = new TextView(this);
+        endLabel.setText("End: 00:00");
+        layout.addView(endLabel);
+
+        endSlider = new SeekBar(this);
+        endSlider.setMax(1000);
+        endSlider.setProgress(1000);
+        layout.addView(endSlider);
+
+        Button previewButton = new Button(this);
+        previewButton.setText("Preview Selected Part");
+        layout.addView(previewButton);
 
         setContentView(layout);
 
         player = new ExoPlayer.Builder(this).build();
         playerView.setPlayer(player);
+
+        player.addListener(new Player.Listener() {
+            @Override
+            public void onPlaybackStateChanged(int state) {
+                if (state == Player.STATE_READY) {
+                    durationMs = player.getDuration();
+
+                    if (durationMs > 0) {
+                        startMs = 0;
+                        endMs = durationMs;
+                        updateLabels();
+                    }
+                }
+            }
+        });
 
         selectButton.setOnClickListener(v -> {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -60,11 +103,80 @@ public class MainActivity extends Activity {
                     | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
             startActivityForResult(intent, PICK_VIDEO);
         });
+
+        startSlider.setOnSeekBarChangeListener(
+                new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar bar, int progress,
+                                         boolean fromUser) {
+                if (fromUser && durationMs > 0) {
+                    startMs = durationMs * progress / 1000;
+                    if (startMs >= endMs) {
+                        startMs = Math.max(0, endMs - 1);
+                        updateSliderValues();
+                    }
+                    updateLabels();
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar bar) {}
+
+            @Override
+            public void onStopTrackingTouch(SeekBar bar) {}
+        });
+
+        endSlider.setOnSeekBarChangeListener(
+                new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar bar, int progress,
+                                         boolean fromUser) {
+                if (fromUser && durationMs > 0) {
+                    endMs = durationMs * progress / 1000;
+                    if (endMs <= startMs) {
+                        endMs = Math.min(durationMs, startMs + 1);
+                        updateSliderValues();
+                    }
+                    updateLabels();
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar bar) {}
+
+            @Override
+            public void onStopTrackingTouch(SeekBar bar) {}
+        });
+
+        previewButton.setOnClickListener(v -> {
+            if (durationMs > 0 && player != null) {
+                player.seekTo(startMs);
+                player.play();
+            }
+        });
+    }
+
+    private void updateLabels() {
+        startLabel.setText("Start: " + formatTime(startMs));
+        endLabel.setText("End: " + formatTime(endMs));
+        updateSliderValues();
+    }
+
+    private void updateSliderValues() {
+        if (durationMs > 0) {
+            startSlider.setProgress((int) (startMs * 1000 / durationMs));
+            endSlider.setProgress((int) (endMs * 1000 / durationMs));
+        }
+    }
+
+    private String formatTime(long ms) {
+        long seconds = ms / 1000;
+        return String.format("%02d:%02d", seconds / 60, seconds % 60);
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode,
-                                   Intent data) {
+                                    Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
 
         if (requestCode == PICK_VIDEO && resultCode == RESULT_OK
@@ -75,13 +187,16 @@ public class MainActivity extends Activity {
             try {
                 getContentResolver().takePersistableUriPermission(
                         videoUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            } catch (SecurityException ignored) {
-            }
+            } catch (SecurityException ignored) {}
 
             fileName.setText("Video selected successfully");
 
-            MediaItem mediaItem = MediaItem.fromUri(videoUri);
-            player.setMediaItem(mediaItem);
+            durationMs = 0;
+            startMs = 0;
+            endMs = 0;
+
+            MediaItem item = MediaItem.fromUri(videoUri);
+            player.setMediaItem(item);
             player.prepare();
             player.play();
         }
