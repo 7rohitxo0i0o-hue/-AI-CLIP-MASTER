@@ -2,142 +2,103 @@
 package com.aiclipmaster.app;
 
 import android.app.Activity;
-import android.os.Bundle;
 import android.content.Intent;
 import android.net.Uri;
-import android.graphics.Color;
-import android.view.Gravity;
+import android.os.Bundle;
 import android.view.ViewGroup;
-import android.widget.*;
-import android.database.Cursor;
-import android.provider.OpenableColumns;
-import android.media.MediaPlayer;
-import android.widget.VideoView;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+import androidx.annotation.Nullable;
+
+import androidx.media3.common.MediaItem;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.PlayerView;
 
 public class MainActivity extends Activity {
 
-    LinearLayout mainLayout;
-    TextView selectedText, durationText;
-    VideoView videoView;
-
-    static final int PICK_VIDEO = 100;
+    private static final int PICK_VIDEO = 100;
+    private ExoPlayer player;
+    private PlayerView playerView;
+    private TextView fileName;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        mainLayout = new LinearLayout(this);
-        mainLayout.setOrientation(LinearLayout.VERTICAL);
-        mainLayout.setPadding(25, 25, 25, 25);
-        mainLayout.setBackgroundColor(Color.rgb(18, 18, 28));
-
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(mainLayout);
-        setContentView(scroll);
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(20, 20, 20, 20);
 
         TextView title = new TextView(this);
         title.setText("AI CLIP MASTER");
-        title.setTextSize(27);
-        title.setTextColor(Color.WHITE);
-        title.setGravity(Gravity.CENTER);
-        mainLayout.addView(title);
-
-        TextView subtitle = new TextView(this);
-        subtitle.setText("Video Preview Studio");
-        subtitle.setTextColor(Color.LTGRAY);
-        subtitle.setGravity(Gravity.CENTER);
-        mainLayout.addView(subtitle);
+        title.setTextSize(26);
+        layout.addView(title);
 
         Button selectButton = new Button(this);
-        selectButton.setText("SELECT VIDEO");
-        mainLayout.addView(selectButton);
+        selectButton.setText("Select Video");
+        layout.addView(selectButton);
 
-        selectedText = new TextView(this);
-        selectedText.setText("No video selected");
-        selectedText.setTextColor(Color.WHITE);
-        selectedText.setPadding(5, 15, 5, 15);
-        mainLayout.addView(selectedText);
+        fileName = new TextView(this);
+        fileName.setText("No video selected");
+        layout.addView(fileName);
 
-        videoView = new VideoView(this);
-        videoView.setBackgroundColor(Color.BLACK);
+        playerView = new PlayerView(this);
+        layout.addView(playerView, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(250)));
 
-        LinearLayout.LayoutParams videoParams =
-                new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        600
-                );
+        setContentView(layout);
 
-        mainLayout.addView(videoView, videoParams);
+        player = new ExoPlayer.Builder(this).build();
+        playerView.setPlayer(player);
 
-        Button playButton = new Button(this);
-        playButton.setText("PLAY");
-        mainLayout.addView(playButton);
-
-        Button pauseButton = new Button(this);
-        pauseButton.setText("PAUSE");
-        mainLayout.addView(pauseButton);
-
-        durationText = new TextView(this);
-        durationText.setText("Duration: 00:00");
-        durationText.setTextColor(Color.WHITE);
-        mainLayout.addView(durationText);
-
-        selectButton.setOnClickListener(v -> selectVideo());
-
-        playButton.setOnClickListener(v -> {
-            if (videoView.isPlaying()) {
-                videoView.start();
-            } else {
-                videoView.start();
-            }
+        selectButton.setOnClickListener(v -> {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.setType("video/*");
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            startActivityForResult(intent, PICK_VIDEO);
         });
-
-        pauseButton.setOnClickListener(v -> videoView.pause());
-    }
-
-    void selectVideo() {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.setType("video/*");
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-
-        startActivityForResult(intent, PICK_VIDEO);
     }
 
     @Override
-    protected void onActivityResult(int requestCode,
-            int resultCode, Intent data) {
-
+    protected void onActivityResult(int requestCode, int resultCode,
+                                   @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
 
-        if (requestCode == PICK_VIDEO &&
-                resultCode == RESULT_OK &&
-                data != null && data.getData() != null) {
+        if (requestCode == PICK_VIDEO && resultCode == RESULT_OK
+                && data != null && data.getData() != null) {
 
             Uri videoUri = data.getData();
 
-            selectedText.setText("Selected: " + videoUri.getLastPathSegment());
+            try {
+                getContentResolver().takePersistableUriPermission(
+                        videoUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (SecurityException ignored) {
+            }
 
-            videoView.setVideoURI(videoUri);
+            fileName.setText("Video selected successfully");
 
-            videoView.setOnPreparedListener(mp -> {
-                int seconds = mp.getDuration() / 1000;
-                durationText.setText(
-                        "Duration: " + String.format(
-                                "%02d:%02d",
-                                seconds / 60,
-                                seconds % 60
-                        )
-                );
-                videoView.start();
-            });
+            MediaItem mediaItem = MediaItem.fromUri(videoUri);
+            player.setMediaItem(mediaItem);
+            player.prepare();
+            player.play();
+        }
+    }
 
-            videoView.setOnErrorListener((mp, what, extra) -> {
-                Toast.makeText(this,
-                        "Video Preview Error",
-                        Toast.LENGTH_SHORT).show();
-                return true;
-            });
+    private int dp(int value) {
+        return (int) (value * getResources().getDisplayMetrics().density);
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+
+        if (player != null) {
+            player.release();
+            player = null;
         }
     }
 }
