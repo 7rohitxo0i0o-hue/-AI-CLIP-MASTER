@@ -10,7 +10,6 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import androidx.annotation.Nullable;
 
 import androidx.media3.common.MediaItem;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -65,7 +64,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode,
-                                   @Nullable Intent data) {
+                                   Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
 
         if (requestCode == PICK_VIDEO && resultCode == RESULT_OK
