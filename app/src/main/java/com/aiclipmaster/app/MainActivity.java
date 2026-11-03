@@ -123,6 +123,68 @@ layout.addView(sceneButton);
 sceneResults = new TextView(this);
 sceneResults.setText("Detected scenes will appear here");
 layout.addView(sceneResults);
+        Button bestMomentsButton = new Button(this);
+bestMomentsButton.setText("Find Best Moments");
+layout.addView(bestMomentsButton);
+
+TextView bestMomentsResults = new TextView(this);
+bestMomentsResults.setText("Best moments will appear here");
+layout.addView(bestMomentsResults);
+
+bestMomentsButton.setOnClickListener(v -> {
+    if (selectedVideoUri == null) {
+        Toast.makeText(this, "Please select a video first",
+                Toast.LENGTH_SHORT).show();
+        return;
+    }
+
+    String sceneText = sceneResults.getText().toString();
+
+    if (!sceneText.contains("Detected Scene Changes:")) {
+        bestMomentsResults.setText(
+                "Please run AI Scene Detection first.");
+        return;
+    }
+
+    StringBuilder result = new StringBuilder();
+    result.append("Potential Highlight Clips:\n");
+
+    String[] lines = sceneText.split("\n");
+    int count = 0;
+
+    for (String line : lines) {
+        if (line.startsWith("• ")) {
+            try {
+                String time = line.substring(2).trim();
+                String[] parts = time.split(":");
+
+                long seconds =
+                        Long.parseLong(parts[0]) * 60
+                        + Long.parseLong(parts[1]);
+
+                long clipStart = Math.max(0, seconds - 5);
+                long clipEnd = Math.min(
+                        durationMs / 1000, seconds + 5);
+
+                result.append("Clip ")
+                        .append(++count)
+                        .append(": ")
+                        .append(formatTime(clipStart * 1000))
+                        .append(" - ")
+                        .append(formatTime(clipEnd * 1000))
+                        .append("\n");
+
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    if (count == 0) {
+        result.append("No highlight candidates found.");
+    }
+
+    bestMomentsResults.setText(result.toString());
+});
 
 sceneButton.setOnClickListener(v -> detectScenes());
 
