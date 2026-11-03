@@ -121,7 +121,6 @@ sceneButton.setText("AI Scene Detection");
 
 sceneResults = new TextView(this);
 sceneResults.setText("Detected scenes will appear here");
-layout.addView(sceneResults);
         Button bestMomentsButton = new Button(this);
 bestMomentsButton.setText("Find Best Moments");
 layout.addView(bestMomentsButton);
