@@ -602,4 +602,39 @@ sceneButton.setOnClickListener(v -> detectScenes());
 private void clearSmartClips() {
     smartClipCandidates.clear();
 }
+    
+private void generateSmartClips(ArrayList<Long> sceneTimes) {
+    smartClipCandidates.clear();
+
+    long totalSeconds = durationMs / 1000;
+
+    if (totalSeconds <= 0 || sceneTimes.isEmpty()) {
+        return;
+    }
+
+    for (int i = 0; i < sceneTimes.size(); i++) {
+        long eventTime = sceneTimes.get(i);
+
+        long start = Math.max(0, eventTime - 10);
+        long end = Math.min(totalSeconds, eventTime + 20);
+
+        if (end - start < 10) {
+            continue;
+        }
+
+        boolean overlaps = false;
+
+        for (long[] clip : smartClipCandidates) {
+            if (start < clip[1] && end > clip[0]) {
+                overlaps = true;
+                break;
+            }
+        }
+
+        if (!overlaps) {
+            smartClipCandidates.add(new long[]{start, end});
+        }
+    }
+}
+    
 }
