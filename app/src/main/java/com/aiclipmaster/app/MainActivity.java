@@ -153,7 +153,7 @@ public class MainActivity extends Activity {
 
             ArrayList<Long> sceneTimes = new ArrayList<>();
 
-            for (String line : sceneText.split("\\n")) {
+            for (String line : sceneText.split("\n")) {
                 if (line.startsWith("• ")) {
                     try {
                         String[] parts = line.substring(2).trim().split(":");
@@ -168,7 +168,7 @@ public class MainActivity extends Activity {
             generateSmartClips(sceneTimes);
 
             StringBuilder result = new StringBuilder();
-            result.append("Smart Clip Candidates:\\n\\n");
+            result.append("Smart Clip Candidates:\n\n");
 
             for (int i = 0; i < smartClipCandidates.size(); i++) {
                 long[] clip = smartClipCandidates.get(i);
@@ -545,9 +545,9 @@ public class MainActivity extends Activity {
                             "No major scene changes detected.");
                 } else {
                     StringBuilder result = new StringBuilder(
-                            "Detected Scene Changes:\\n");
+                            "Detected Scene Changes:\n");
                     for (String time : scenes) {
-                        result.append("• ").append(time).append("\\n");
+                        result.append("• ").append(time).append("\n");
                     }
                     sceneResults.setText(result.toString());
                 }
