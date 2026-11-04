@@ -132,6 +132,7 @@ layout.addView(bestMomentsResults);
         layout.addView(sceneResults);
 
 
+
 bestMomentsButton.setOnClickListener(v -> {
     if (selectedVideoUri == null || durationMs <= 0) {
         Toast.makeText(this, "Please select a video first",
@@ -147,14 +148,9 @@ bestMomentsButton.setOnClickListener(v -> {
         return;
     }
 
-    long totalSeconds = durationMs / 1000;
-    long targetLength = Math.min(60, totalSeconds);
-
     ArrayList<Long> sceneTimes = new ArrayList<>();
 
-    String[] lines = sceneText.split("\n");
-
-    for (String line : lines) {
+    for (String line : sceneText.split("\n")) {
         if (line.startsWith("• ")) {
             try {
                 String[] parts = line.substring(2).trim().split(":");
@@ -163,40 +159,37 @@ bestMomentsButton.setOnClickListener(v -> {
                         + Long.parseLong(parts[1]);
 
                 sceneTimes.add(seconds);
-
             } catch (Exception ignored) {
             }
         }
     }
 
-    if (sceneTimes.isEmpty()) {
-        bestMomentsResults.setText(
-                "No highlight candidates found.");
-        return;
+    generateSmartClips(sceneTimes);
+
+    StringBuilder result = new StringBuilder();
+    result.append("Smart Clip Candidates:\n\n");
+
+    for (int i = 0; i < smartClipCandidates.size(); i++) {
+        long[] clip = smartClipCandidates.get(i);
+
+        result.append("Clip ")
+                .append(i + 1)
+                .append(": ")
+                .append(formatTime(clip[0] * 1000))
+                .append(" - ")
+                .append(formatTime(clip[1] * 1000))
+                .append(" (")
+                .append(clip[1] - clip[0])
+                .append(" sec)\n");
     }
 
-    ArrayList<long[]> clips = new ArrayList<>();
+    if (smartClipCandidates.isEmpty()) {
+        result.append("No suitable clips found.");
+    }
 
-    for (long seconds : sceneTimes) {
-
-        long clipStart = Math.max(0, seconds - 30);
-        long clipEnd = Math.min(
-                totalSeconds, clipStart + targetLength);
-
-        clipStart = Math.max(0, clipEnd - targetLength);
-
-        boolean overlapping = false;
-
-        for (long[] existing : clips) {
-            if (clipStart < existing[1]
-                    && clipEnd > existing[0]) {
-                overlapping = true;
-                break;
-            }
-        }
-
-        if (!overlapping) {
-            clips.add(new long[]{clipStart, clipEnd});
+    bestMomentsResults.setText(result.toString());
+});
+        
         }
     }
 
