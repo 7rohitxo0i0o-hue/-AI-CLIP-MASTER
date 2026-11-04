@@ -597,4 +597,9 @@ sceneButton.setOnClickListener(v -> detectScenes());
 
     }).start();
     }
+    private ArrayList<long[]> smartClipCandidates = new ArrayList<>();
+
+private void clearSmartClips() {
+    smartClipCandidates.clear();
+}
 }
