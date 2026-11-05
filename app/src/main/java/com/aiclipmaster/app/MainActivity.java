@@ -16,6 +16,7 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -180,7 +181,7 @@ public class MainActivity extends Activity {
                         .append(formatTime(clip[1] * 1000))
                         .append(" (")
                         .append(clip[1] - clip[0])
-                        .append(" sec)\\n");
+                        .append(" sec)\n");
             }
 
             if (smartClipCandidates.isEmpty()) {
@@ -192,7 +193,10 @@ public class MainActivity extends Activity {
 
         sceneButton.setOnClickListener(v -> detectScenes());
 
-        setContentView(layout);
+        ScrollView scrollView = new ScrollView(this);
+scrollView.setFillViewport(true);
+scrollView.addView(layout);
+setContentView(scrollView);
 
         player = new ExoPlayer.Builder(this).build();
         playerView.setPlayer(player);
