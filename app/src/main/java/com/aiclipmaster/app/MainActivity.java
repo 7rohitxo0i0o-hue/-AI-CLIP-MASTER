@@ -10,8 +10,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Build;
 import android.os.Environment;
-import android.os.Handler;
-import android.os.Looper;
 import android.provider.MediaStore;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -36,6 +34,7 @@ import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.Collections;
 
 public class MainActivity extends Activity {
 
@@ -58,7 +57,6 @@ public class MainActivity extends Activity {
     private long durationMs = 0;
     private long startMs = 0;
     private long endMs = 0;
-    private long previewEndMs = 0;
 
     private boolean previewActive = false;
 
@@ -67,27 +65,6 @@ public class MainActivity extends Activity {
 
     private final ArrayList<long[]> smartClipCandidates =
             new ArrayList<>();
-
-    private final Handler handler =
-            new Handler(Looper.getMainLooper());
-
-    private final Runnable endMonitor = new Runnable() {
-        @Override
-        public void run() {
-
-            if (player != null
-                    && previewActive
-                    && player.getPlaybackState() == Player.STATE_READY
-                    && player.getCurrentPosition() >= previewEndMs) {
-
-                player.pause();
-                player.seekTo(previewEndMs);
-                previewActive = false;
-            }
-
-            handler.postDelayed(this, 100);
-        }
-    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -103,7 +80,7 @@ public class MainActivity extends Activity {
         layout.addView(title);
 
         Button selectButton = new Button(this);
-        selectButton.setText("Select Video");
+        selectButton.setText("SELECT VIDEO");
         layout.addView(selectButton);
 
         fileName = new TextView(this);
@@ -154,10 +131,8 @@ public class MainActivity extends Activity {
         bestMomentsResults.setText("Best moments will appear here");
         layout.addView(bestMomentsResults);
 
-        LinearLayout clipButtonsLayout =
-                new LinearLayout(this);
-        clipButtonsLayout.setOrientation(
-                LinearLayout.VERTICAL);
+        LinearLayout clipButtonsLayout = new LinearLayout(this);
+        clipButtonsLayout.setOrientation(LinearLayout.VERTICAL);
         layout.addView(clipButtonsLayout);
 
         ScrollView scrollView = new ScrollView(this);
@@ -168,42 +143,39 @@ public class MainActivity extends Activity {
         player = new ExoPlayer.Builder(this).build();
         playerView.setPlayer(player);
 
-        handler.post(endMonitor);
-
         player.addListener(new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int state) {
-
-                if (state == Player.STATE_READY) {
-                    long duration = player.getDuration();
-
-                    if (duration > 0 && durationMs == 0) {
-                        durationMs = duration;
-                        startMs = 0;
-                        endMs = durationMs;
-                        updateLabels();
-                    }
+                if (state == Player.STATE_ENDED && previewActive) {
+                    previewActive = false;
+                    Toast.makeText(MainActivity.this,
+                            "Preview complete",
+                            Toast.LENGTH_SHORT).show();
                 }
+            }
+
+            @Override
+            public void onPlayerError(
+                    androidx.media3.common.PlaybackException error) {
+                previewActive = false;
+                Toast.makeText(MainActivity.this,
+                        "Playback error: " + error.getMessage(),
+                        Toast.LENGTH_LONG).show();
             }
         });
 
         selectButton.setOnClickListener(v -> {
-            Intent intent =
-                    new Intent(Intent.ACTION_OPEN_DOCUMENT);
-
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.setType("video/*");
             intent.addCategory(Intent.CATEGORY_OPENABLE);
-
             intent.addFlags(
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                            | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
             startActivityForResult(intent, PICK_VIDEO);
         });
 
         startSlider.setOnSeekBarChangeListener(
                 new SeekBar.OnSeekBarChangeListener() {
-
             @Override
             public void onProgressChanged(
                     SeekBar bar, int progress, boolean fromUser) {
@@ -212,7 +184,7 @@ public class MainActivity extends Activity {
                     startMs = durationMs * progress / 1000;
 
                     if (startMs >= endMs) {
-                        startMs = Math.max(0, endMs - 1);
+                        startMs = Math.max(0, endMs - 1000);
                     }
 
                     updateLabels();
@@ -228,7 +200,6 @@ public class MainActivity extends Activity {
 
         endSlider.setOnSeekBarChangeListener(
                 new SeekBar.OnSeekBarChangeListener() {
-
             @Override
             public void onProgressChanged(
                     SeekBar bar, int progress, boolean fromUser) {
@@ -237,7 +208,7 @@ public class MainActivity extends Activity {
                     endMs = durationMs * progress / 1000;
 
                     if (endMs <= startMs) {
-                        endMs = Math.min(durationMs, startMs + 1);
+                        endMs = Math.min(durationMs, startMs + 1000);
                     }
 
                     updateLabels();
@@ -251,28 +222,7 @@ public class MainActivity extends Activity {
             public void onStopTrackingTouch(SeekBar bar) {}
         });
 
-        previewButton.setOnClickListener(v -> {
-
-            if (selectedVideoUri == null || durationMs <= 0) {
-                Toast.makeText(this,
-                        "Select a video first",
-                        Toast.LENGTH_SHORT).show();
-                return;
-            }
-
-            if (endMs <= startMs) {
-                Toast.makeText(this,
-                        "Invalid clip duration",
-                        Toast.LENGTH_SHORT).show();
-                return;
-            }
-
-            previewEndMs = endMs;
-            previewActive = true;
-
-            player.seekTo(startMs);
-            player.play();
-        });
+        previewButton.setOnClickListener(v -> previewSelectedPart());
 
         exportButton.setOnClickListener(v -> exportVideo());
 
@@ -281,14 +231,11 @@ public class MainActivity extends Activity {
         bestMomentsButton.setOnClickListener(v -> {
 
             if (selectedVideoUri == null || durationMs <= 0) {
-                Toast.makeText(this,
-                        "Please select a video first",
-                        Toast.LENGTH_SHORT).show();
+                showMessage("Please select a video first");
                 return;
             }
 
-            String sceneText =
-                    sceneResults.getText().toString();
+            String sceneText = sceneResults.getText().toString();
 
             if (!sceneText.contains("Detected Scene Changes:")) {
                 bestMomentsResults.setText(
@@ -299,31 +246,27 @@ public class MainActivity extends Activity {
             ArrayList<Long> sceneTimes = new ArrayList<>();
 
             for (String line : sceneText.split("\n")) {
-
                 if (line.startsWith("• ")) {
                     try {
                         String[] parts =
                                 line.substring(2).trim().split(":");
 
                         long seconds =
-                                Long.parseLong(parts[0]) * 60
-                                + Long.parseLong(parts[1]);
+                                Long.parseLong(parts[0]) * 60 +
+                                Long.parseLong(parts[1]);
 
                         sceneTimes.add(seconds);
-
                     } catch (Exception ignored) {}
                 }
             }
 
             generateSmartClips(sceneTimes);
-
             clipButtonsLayout.removeAllViews();
 
-            StringBuilder result = new StringBuilder();
-            result.append("Smart Clip Candidates:\n\n");
+            StringBuilder result =
+                    new StringBuilder("Smart Clip Candidates:\n\n");
 
-            for (int i = 0;
-                    i < smartClipCandidates.size(); i++) {
+            for (int i = 0; i < smartClipCandidates.size(); i++) {
 
                 long[] clip = smartClipCandidates.get(i);
 
@@ -344,20 +287,15 @@ public class MainActivity extends Activity {
                 clipButton.setText("SELECT CLIP " + (i + 1));
 
                 clipButton.setOnClickListener(view -> {
+                    player.pause();
+                    previewActive = false;
 
                     startMs = clipStart;
                     endMs = clipEnd;
 
-                    previewActive = false;
-
                     updateLabels();
 
-                    player.pause();
-                    player.seekTo(startMs);
-
-                    Toast.makeText(this,
-                            "Clip selected",
-                            Toast.LENGTH_SHORT).show();
+                    showMessage("Clip selected");
                 });
 
                 clipButtonsLayout.addView(clipButton);
@@ -369,15 +307,51 @@ public class MainActivity extends Activity {
 
             bestMomentsResults.setText(result.toString());
         });
+
+        updateLabels();
+    }
+
+    private void previewSelectedPart() {
+
+        if (selectedVideoUri == null || durationMs <= 0) {
+            showMessage("Select a video first");
+            return;
+        }
+
+        if (startMs < 0 || endMs > durationMs ||
+                endMs <= startMs) {
+            showMessage("Invalid clip duration");
+            return;
+        }
+
+        try {
+            previewActive = false;
+            player.pause();
+
+            MediaItem clippedItem = new MediaItem.Builder()
+                    .setUri(selectedVideoUri)
+                    .setClippingConfiguration(
+                            new MediaItem.ClippingConfiguration.Builder()
+                                    .setStartPositionMs(startMs)
+                                    .setEndPositionMs(endMs)
+                                    .build())
+                    .build();
+
+            previewActive = true;
+            player.setMediaItem(clippedItem, true);
+            player.prepare();
+            player.play();
+
+        } catch (Exception e) {
+            previewActive = false;
+            showMessage("Preview error: " + e.getMessage());
+        }
     }
 
     private void updateLabels() {
 
-        startLabel.setText(
-                "Start: " + formatTime(startMs));
-
-        endLabel.setText(
-                "End: " + formatTime(endMs));
+        startLabel.setText("Start: " + formatTime(startMs));
+        endLabel.setText("End: " + formatTime(endMs));
 
         if (durationMs > 0) {
             startSlider.setProgress(
@@ -389,15 +363,12 @@ public class MainActivity extends Activity {
     }
 
     private String formatTime(long ms) {
-
         long seconds = ms / 1000;
-
         return String.format("%02d:%02d",
                 seconds / 60, seconds % 60);
     }
 
-    private void generateSmartClips(
-            ArrayList<Long> sceneTimes) {
+    private void generateSmartClips(ArrayList<Long> sceneTimes) {
 
         smartClipCandidates.clear();
 
@@ -406,6 +377,8 @@ public class MainActivity extends Activity {
         if (totalSeconds <= 0 || sceneTimes.isEmpty()) {
             return;
         }
+
+        Collections.sort(sceneTimes);
 
         for (long eventTime : sceneTimes) {
 
@@ -419,7 +392,6 @@ public class MainActivity extends Activity {
             boolean overlaps = false;
 
             for (long[] clip : smartClipCandidates) {
-
                 if (start < clip[1] && end > clip[0]) {
                     overlaps = true;
                     break;
@@ -427,8 +399,7 @@ public class MainActivity extends Activity {
             }
 
             if (!overlaps) {
-                smartClipCandidates.add(
-                        new long[]{start, end});
+                smartClipCandidates.add(new long[]{start, end});
             }
         }
     }
@@ -436,16 +407,13 @@ public class MainActivity extends Activity {
     private void exportVideo() {
 
         if (selectedVideoUri == null || durationMs <= 0) {
-            Toast.makeText(this,
-                    "Please select a video first",
-                    Toast.LENGTH_SHORT).show();
+            showMessage("Please select a video first");
             return;
         }
 
-        if (startMs >= endMs) {
-            Toast.makeText(this,
-                    "Invalid Start or End time",
-                    Toast.LENGTH_SHORT).show();
+        if (startMs < 0 || endMs > durationMs ||
+                startMs >= endMs) {
+            showMessage("Invalid Start or End time");
             return;
         }
 
@@ -453,12 +421,8 @@ public class MainActivity extends Activity {
         previewActive = false;
 
         try {
-
-            File outputDirectory = getCacheDir();
-
             exportFile = File.createTempFile(
-                    "trimmed_video_", ".mp4",
-                    outputDirectory);
+                    "trimmed_video_", ".mp4", getCacheDir());
 
             MediaItem mediaItem = new MediaItem.Builder()
                     .setUri(selectedVideoUri)
@@ -479,15 +443,12 @@ public class MainActivity extends Activity {
                         public void onCompleted(
                                 Composition composition,
                                 ExportResult result) {
-
                             runOnUiThread(() -> {
                                 try {
                                     saveToGallery(exportFile);
                                 } catch (Exception e) {
-                                    Toast.makeText(MainActivity.this,
-                                            "Could not save video: "
-                                                    + e.getMessage(),
-                                            Toast.LENGTH_LONG).show();
+                                    showMessage("Gallery save failed: " +
+                                            e.getMessage());
                                 }
                             });
                         }
@@ -497,33 +458,22 @@ public class MainActivity extends Activity {
                                 Composition composition,
                                 ExportResult result,
                                 ExportException exception) {
-
                             runOnUiThread(() ->
-                                    Toast.makeText(MainActivity.this,
-                                            "Export failed: "
-                                                    + exception.getMessage(),
-                                            Toast.LENGTH_LONG).show());
+                                    showMessage("Export failed: " +
+                                            exception.getMessage()));
                         }
                     })
                     .build();
 
-            Toast.makeText(this,
-                    "Video Export Started",
-                    Toast.LENGTH_SHORT).show();
-
-            transformer.start(
-                    editedItem, exportFile.getAbsolutePath());
+            showMessage("Video Export Started");
+            transformer.start(editedItem, exportFile.getAbsolutePath());
 
         } catch (Exception e) {
-
-            Toast.makeText(this,
-                    "Error: " + e.getMessage(),
-                    Toast.LENGTH_LONG).show();
+            showMessage("Export error: " + e.getMessage());
         }
     }
 
-    private void saveToGallery(File sourceFile)
-            throws Exception {
+    private void saveToGallery(File sourceFile) throws Exception {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
 
@@ -532,12 +482,10 @@ public class MainActivity extends Activity {
             values.put(MediaStore.Video.Media.DISPLAY_NAME,
                     "AI_CLIP_" + System.currentTimeMillis() + ".mp4");
 
-            values.put(MediaStore.Video.Media.MIME_TYPE,
-                    "video/mp4");
+            values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
 
             values.put(MediaStore.Video.Media.RELATIVE_PATH,
-                    Environment.DIRECTORY_MOVIES
-                            + "/AI CLIP MASTER");
+                    Environment.DIRECTORY_MOVIES + "/AI CLIP MASTER");
 
             values.put(MediaStore.Video.Media.IS_PENDING, 1);
 
@@ -549,15 +497,12 @@ public class MainActivity extends Activity {
                 throw new Exception("Gallery save failed");
             }
 
-            try (InputStream input =
-                         new FileInputStream(sourceFile);
+            try (InputStream input = new FileInputStream(sourceFile);
                  OutputStream output =
-                         getContentResolver().openOutputStream(
-                                 galleryUri)) {
+                         getContentResolver().openOutputStream(galleryUri)) {
 
                 if (output == null) {
-                    throw new Exception(
-                            "Cannot open Gallery file");
+                    throw new Exception("Cannot open Gallery file");
                 }
 
                 byte[] buffer = new byte[8192];
@@ -574,15 +519,10 @@ public class MainActivity extends Activity {
             getContentResolver().update(
                     galleryUri, completed, null, null);
 
-            Toast.makeText(this,
-                    "Export Complete! Check Movies/AI CLIP MASTER",
-                    Toast.LENGTH_LONG).show();
+            showMessage("Export Complete! Check Movies/AI CLIP MASTER");
 
         } else {
-
-            Toast.makeText(this,
-                    "Exported to: " + sourceFile.getAbsolutePath(),
-                    Toast.LENGTH_LONG).show();
+            showMessage("Exported to: " + sourceFile.getAbsolutePath());
         }
     }
 
@@ -590,13 +530,12 @@ public class MainActivity extends Activity {
     protected void onActivityResult(
             int requestCode, int resultCode, Intent data) {
 
-        super.onActivityResult(
-                requestCode, resultCode, data);
+        super.onActivityResult(requestCode, resultCode, data);
 
-        if (requestCode == PICK_VIDEO
-                && resultCode == RESULT_OK
-                && data != null
-                && data.getData() != null) {
+        if (requestCode == PICK_VIDEO &&
+                resultCode == RESULT_OK &&
+                data != null &&
+                data.getData() != null) {
 
             selectedVideoUri = data.getData();
 
@@ -606,27 +545,61 @@ public class MainActivity extends Activity {
                         Intent.FLAG_GRANT_READ_URI_PERMISSION);
             } catch (SecurityException ignored) {}
 
-            fileName.setText("Video selected successfully");
+            player.pause();
+            previewActive = false;
 
             durationMs = 0;
             startMs = 0;
             endMs = 0;
-            previewActive = false;
+            smartClipCandidates.clear();
 
-            player.setMediaItem(
-                    MediaItem.fromUri(selectedVideoUri));
+            sceneResults.setText("Detected scenes will appear here");
+            bestMomentsResults.setText("Best moments will appear here");
 
-            player.prepare();
-            player.play();
+            fileName.setText("Video selected successfully");
+
+            try {
+                MediaMetadataRetriever retriever =
+                        new MediaMetadataRetriever();
+
+                retriever.setDataSource(this, selectedVideoUri);
+
+                String durationText = retriever.extractMetadata(
+                        MediaMetadataRetriever.METADATA_KEY_DURATION);
+
+                if (durationText == null) {
+                    throw new Exception("Could not read video duration");
+                }
+
+                durationMs = Long.parseLong(durationText);
+                retriever.release();
+
+                if (durationMs <= 0) {
+                    throw new Exception("Invalid video duration");
+                }
+
+                startMs = 0;
+                endMs = durationMs;
+
+                MediaItem originalItem =
+                        MediaItem.fromUri(selectedVideoUri);
+
+                player.setMediaItem(originalItem);
+                player.prepare();
+
+                updateLabels();
+
+            } catch (Exception e) {
+                durationMs = 0;
+                showMessage("Video error: " + e.getMessage());
+            }
         }
     }
 
     private void detectScenes() {
 
-        if (selectedVideoUri == null) {
-            Toast.makeText(this,
-                    "Please select a video first",
-                    Toast.LENGTH_SHORT).show();
+        if (selectedVideoUri == null || durationMs <= 0) {
+            showMessage("Please select a video first");
             return;
         }
 
@@ -640,27 +613,20 @@ public class MainActivity extends Activity {
             ArrayList<String> scenes = new ArrayList<>();
 
             try {
-
-                retriever.setDataSource(
-                        this, selectedVideoUri);
-
-                String durationText =
-                        retriever.extractMetadata(
-                                MediaMetadataRetriever.METADATA_KEY_DURATION);
-
-                long duration = Long.parseLong(durationText);
+                retriever.setDataSource(this, selectedVideoUri);
 
                 int[] previous = null;
 
                 for (long time = 0;
-                        time < duration;
-                        time += 1000) {
+                     time < durationMs;
+                     time += 1000) {
 
                     Bitmap frame = retriever.getFrameAtTime(
                             time * 1000,
                             MediaMetadataRetriever.OPTION_CLOSEST);
 
                     if (frame == null) {
+                   
                         continue;
                     }
 
@@ -673,13 +639,9 @@ public class MainActivity extends Activity {
                             pixels, 0, 32, 0, 0, 32, 32);
 
                     if (previous != null) {
-
                         long difference = 0;
 
-                        for (int i = 0;
-                                i < pixels.length;
-                                i++) {
-
+                        for (int i = 0; i < pixels.length; i++) {
                             int r1 = (pixels[i] >> 16) & 255;
                             int g1 = (pixels[i] >> 8) & 255;
                             int b1 = pixels[i] & 255;
@@ -693,11 +655,11 @@ public class MainActivity extends Activity {
                             difference += Math.abs(b1 - b2);
                         }
 
-                        double average = difference
-                                / (double) (pixels.length * 3);
+                        double average = difference /
+                                (double) (pixels.length * 3);
 
                         if (average > 45) {
-                            scenes.add(formatTime(time));
+                            scenes.add(formatTime(time * 1000));
                         }
                     }
 
@@ -711,26 +673,19 @@ public class MainActivity extends Activity {
                 }
 
             } catch (Exception e) {
-
-                scenes.add(
-                        "Detection error: " + e.getMessage());
+                scenes.add("Detection error: " + e.getMessage());
 
             } finally {
-
                 try {
                     retriever.release();
                 } catch (Exception ignored) {}
             }
 
             runOnUiThread(() -> {
-
                 if (scenes.isEmpty()) {
-
                     sceneResults.setText(
                             "No major scene changes detected.");
-
                 } else {
-
                     StringBuilder result =
                             new StringBuilder(
                                     "Detected Scene Changes:\n");
@@ -748,17 +703,17 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private int dp(int value) {
+    private void showMessage(String message) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+    }
 
+    private int dp(int value) {
         return (int) (value * getResources()
                 .getDisplayMetrics().density);
     }
 
     @Override
     protected void onDestroy() {
-
-        handler.removeCallbacks(endMonitor);
-
         if (transformer != null) {
             transformer.cancel();
         }
