@@ -23,6 +23,8 @@ import androidx.media3.transformer.Composition;
 import androidx.media3.transformer.ExportException;
 import androidx.media3.transformer.ExportResult;
 
+import com.google.firebase.auth.FirebaseAuth;
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -30,6 +32,8 @@ import java.util.Locale;
 
 @UnstableApi
 public class MainActivity extends Activity {
+
+    private FirebaseAuth auth;
 
     private ExoPlayer player;
     private PlayerView playerView;
@@ -66,6 +70,132 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        auth = FirebaseAuth.getInstance();
+
+        if (auth.getCurrentUser() == null) {
+            showAuthScreen();
+        } else {
+            startEditor();
+        }
+    }
+
+    // LOGIN AND SIGN UP SCREEN
+    private void showAuthScreen() {
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dp(24), dp(40), dp(24), dp(24));
+        layout.setBackgroundColor(Color.rgb(18, 18, 18));
+
+        TextView title = makeText("AI CLIP MASTER");
+        title.setTextSize(28);
+        title.setGravity(17);
+        layout.addView(title);
+
+        TextView subtitle = makeText("Login or Create Account");
+        subtitle.setGravity(17);
+        layout.addView(subtitle);
+
+        EditText emailInput = new EditText(this);
+        emailInput.setHint("Email address");
+        emailInput.setSingleLine(true);
+        emailInput.setTextColor(Color.WHITE);
+        emailInput.setHintTextColor(Color.LTGRAY);
+        emailInput.setInputType(33);
+        layout.addView(emailInput);
+
+        EditText passwordInput = new EditText(this);
+        passwordInput.setHint("Password");
+        passwordInput.setSingleLine(true);
+        passwordInput.setTextColor(Color.WHITE);
+        passwordInput.setHintTextColor(Color.LTGRAY);
+        passwordInput.setInputType(129);
+        layout.addView(passwordInput);
+
+        Button loginButton = makeButton("LOGIN");
+        layout.addView(loginButton);
+
+        Button signupButton = makeButton("CREATE ACCOUNT");
+        layout.addView(signupButton);
+
+        TextView message = makeText(
+                "Use your email and password to continue.");
+        layout.addView(message);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(layout);
+        setContentView(scroll);
+
+        loginButton.setOnClickListener(v -> {
+
+            String email = emailInput.getText().toString().trim();
+            String password = passwordInput.getText().toString();
+
+            if (email.isEmpty() || password.isEmpty()) {
+                message.setText("Enter email and password.");
+                return;
+            }
+
+            loginButton.setEnabled(false);
+            message.setText("Logging in...");
+
+            auth.signInWithEmailAndPassword(email, password)
+                    .addOnCompleteListener(this, task -> {
+
+                        loginButton.setEnabled(true);
+
+                        if (task.isSuccessful()) {
+                            startEditor();
+                        } else {
+                            message.setText(
+                                    "Login failed: " +
+                                    (task.getException() != null
+                                    ? task.getException().getMessage()
+                                    : "Please try again."));
+                        }
+                    });
+        });
+
+        signupButton.setOnClickListener(v -> {
+
+            String email = emailInput.getText().toString().trim();
+            String password = passwordInput.getText().toString();
+
+            if (email.isEmpty() || password.isEmpty()) {
+                message.setText("Enter email and password.");
+                return;
+            }
+
+            if (password.length() < 6) {
+                message.setText(
+                        "Password must be at least 6 characters.");
+                return;
+            }
+
+            signupButton.setEnabled(false);
+            message.setText("Creating account...");
+
+            auth.createUserWithEmailAndPassword(email, password)
+                    .addOnCompleteListener(this, task -> {
+
+                        signupButton.setEnabled(true);
+
+                        if (task.isSuccessful()) {
+                            startEditor();
+                        } else {
+                            message.setText(
+                                    "Signup failed: " +
+                                    (task.getException() != null
+                                    ? task.getException().getMessage()
+                                    : "Please try again."));
+                        }
+                    });
+        });
+    }
+
+    // OPEN VIDEO EDITOR AFTER LOGIN
+    private void startEditor() {
+
         buildInterface();
 
         player = new ExoPlayer.Builder(this).build();
@@ -81,6 +211,7 @@ public class MainActivity extends Activity {
         });
     }
 
+    // VIDEO EDITOR INTERFACE
     private void buildInterface() {
 
         ScrollView scroll = new ScrollView(this);
@@ -100,6 +231,19 @@ public class MainActivity extends Activity {
         title.setGravity(17);
         title.setPadding(0, dp(12), 0, dp(18));
         root.addView(title);
+
+        Button logoutButton = makeButton("LOGOUT");
+        root.addView(logoutButton);
+
+        logoutButton.setOnClickListener(v -> {
+            if (player != null) {
+                player.release();
+                player = null;
+            }
+
+            auth.signOut();
+            showAuthScreen();
+        });
 
         Button selectButton = makeButton("SELECT VIDEO");
         root.addView(selectButton);
@@ -199,565 +343,463 @@ public class MainActivity extends Activity {
         bestResults = makeText("Best moments will appear here");
         root.addView(bestResults);
     }
-
-    private Button makeButton(String text) {
-        Button button = new Button(this);
-        button.setText(text);
-        button.setTextColor(Color.WHITE);
-        button.setBackgroundTintList(
-                android.content.res.ColorStateList.valueOf(
-                        Color.rgb(90, 40, 180)));
-        LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(-1, dp(52));
-        params.setMargins(0, dp(8), 0, dp(8));
-        button.setLayoutParams(params);
-        return button;
-    }
-
-    private TextView makeText(String text) {
-        TextView view = new TextView(this);
-        view.setText(text);
-        view.setTextColor(Color.WHITE);
-        view.setTextSize(15);
-        view.setPadding(0, dp(10), 0, dp(10));
-        return view;
-    }
-
-    private void selectVideo() {
-        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-        intent.setType("video/*");
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        startActivityForResult(intent, 100);
-    }
-
-    @Override
-    protected void onActivityResult(
-            int requestCode, int resultCode,
-            @Nullable Intent data) {
-
-        super.onActivityResult(requestCode, resultCode, data);
-
-        if (requestCode == 100 &&
-                resultCode == Activity.RESULT_OK &&
-                data != null && data.getData() != null) {
-
-            videoUri = data.getData();
-
-            try {
-                MediaMetadataRetriever retriever =
-                        new MediaMetadataRetriever();
-
-                retriever.setDataSource(this, videoUri);
-
-                String value = retriever.extractMetadata(
-                        MediaMetadataRetriever.METADATA_KEY_DURATION);
-
-                durationMs = Long.parseLong(value);
-
-                retriever.release();
-
-                clipStartMs = 0;
-                clipEndMs = durationMs;
-
-                startSeek.setProgress(0);
-                endSeek.setProgress(1000);
-
-                player.setMediaItem(MediaItem.fromUri(videoUri));
-                player.prepare();
-
-                statusText.setText(
-                        "Video loaded: " + formatTime(durationMs));
-
-                sceneTimes.clear();
-                bestClips.clear();
-                sceneResults.setText("Scene results will appear here");
-                bestResults.setText("Best moments will appear here");
-
-            } catch (Exception e) {
-                showMessage("Video loading error: " + e.getMessage());
-            }
-        }
-    }
-
-    private void previewSelectedPart() {
-
-        if (videoUri == null || durationMs <= 0) {
-            showMessage("Please select a video first");
-            return;
-        }
-
-        if (clipEndMs <= clipStartMs) {
-            showMessage("Please select a valid clip range");
-            return;
-        }
-
-        MediaItem clippedItem = new MediaItem.Builder()
-                .setUri(videoUri)
-                .setClippingConfiguration(
-                        new MediaItem.ClippingConfiguration.Builder()
-                                .setStartPositionMs(clipStartMs)
-                                .setEndPositionMs(clipEndMs)
-                                .build())
-                .build();
-
-        player.setMediaItem(clippedItem);
-        player.prepare();
-        player.play();
-
-        statusText.setText(
-                "Playing: " + formatTime(clipStartMs)
-                        + " - " + formatTime(clipEndMs));
-    }
     
-    // SCENE DETECTION - timestamps are stored in milliseconds
-    private void detectScenes() {
+private void selectVideo() {
+    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+    intent.setType("video/*");
+    intent.addCategory(Intent.CATEGORY_OPENABLE);
+    startActivityForResult(intent, 100);
+}
 
-        if (videoUri == null || durationMs <= 0) {
-            showMessage("Please select a video first");
-            return;
-        }
+@Override
+protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    super.onActivityResult(requestCode, resultCode, data);
 
-        sceneButton.setEnabled(false);
-        sceneResults.setText("Detecting scenes...");
+    if (requestCode == 100 && resultCode == RESULT_OK
+            && data != null && data.getData() != null) {
+        videoUri = data.getData();
 
-        new Thread(() -> {
+        try {
+            getContentResolver().takePersistableUriPermission(
+                    videoUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+            );
+        } catch (Exception ignored) {}
 
-            ArrayList<Long> detected = new ArrayList<>();
+        try {
             MediaMetadataRetriever retriever =
                     new MediaMetadataRetriever();
+            retriever.setDataSource(this, videoUri);
 
-            try {
-                retriever.setDataSource(this, videoUri);
+            String duration = retriever.extractMetadata(
+                    MediaMetadataRetriever.METADATA_KEY_DURATION
+            );
 
-                int[] previous = null;
+            durationMs = Long.parseLong(duration);
+            clipStartMs = 0;
+            clipEndMs = durationMs;
 
-                // Sample once per second, using actual milliseconds
-                for (long timeMs = 1000;
-                     timeMs < durationMs;
-                     timeMs += 1000) {
+            startSeekBar.setMax((int) durationMs);
+            endSeekBar.setMax((int) durationMs);
+            startSeekBar.setProgress(0);
+            endSeekBar.setProgress((int) durationMs);
 
-                    Bitmap frame = retriever.getFrameAtTime(
-                            timeMs * 1000,
-                            MediaMetadataRetriever.OPTION_CLOSEST);
+            player.setMediaItem(
+                    androidx.media3.common.MediaItem.fromUri(videoUri)
+            );
+            player.prepare();
 
-                    if (frame == null) {
-                        continue;
-                    }
+            statusText.setText("Video loaded successfully!");
+            retriever.release();
 
-                    Bitmap small = Bitmap.createScaledBitmap(
-                            frame, 32, 32, true);
+        } catch (Exception e) {
+            showMessage("Video load failed: " + e.getMessage());
+        }
+    }
+}
 
-                    int[] pixels = new int[32 * 32];
-                    small.getPixels(pixels, 0, 32, 0, 0, 32, 32);
-
-                    if (previous != null) {
-                        long difference = 0;
-
-                        for (int i = 0; i < pixels.length; i++) {
-                            int r1 = (pixels[i] >> 16) & 255;
-                            int g1 = (pixels[i] >> 8) & 255;
-                            int b1 = pixels[i] & 255;
-
-                            int r2 = (previous[i] >> 16) & 255;
-                            int g2 = (previous[i] >> 8) & 255;
-                            int b2 = previous[i] & 255;
-
-                            difference += Math.abs(r1 - r2);
-                            difference += Math.abs(g1 - g2);
-                            difference += Math.abs(b1 - b2);
-                        }
-
-                        double average = difference /
-                                (double) (pixels.length * 3);
-
-                        if (average > 45) {
-                            detected.add(timeMs);
-                        }
-                    }
-
-                    previous = pixels;
-
-                    if (small != frame) {
-                        small.recycle();
-                    }
-
-                    frame.recycle();
-                }
-
-            } catch (Exception e) {
-                runOnUiThread(() -> {
-                    sceneButton.setEnabled(true);
-                    sceneResults.setText(
-                            "Detection error: " + e.getMessage());
-                });
-                return;
-
-            } finally {
-                try {
-                    retriever.release();
-                } catch (Exception ignored) {}
-            }
-
-            runOnUiThread(() -> {
-                sceneTimes.clear();
-                sceneTimes.addAll(detected);
-                Collections.sort(sceneTimes);
-
-                sceneButton.setEnabled(true);
-
-                if (sceneTimes.isEmpty()) {
-                    sceneResults.setText(
-                            "No major scene changes detected.");
-                    return;
-                }
-
-                StringBuilder result =
-                        new StringBuilder("Detected Scene Changes:\n");
-
-                for (long time : sceneTimes) {
-                    result.append("• ")
-                            .append(formatTime(time))
-                            .append("\n");
-                }
-
-                sceneResults.setText(result.toString());
-            });
-
-        }).start();
+private void previewSelectedPart() {
+    if (videoUri == null) {
+        showMessage("Please select a video first.");
+        return;
     }
 
-    // FIND BEST MOMENTS
-    private void findBestMoments() {
+    clipStartMs = startSeekBar.getProgress();
+    clipEndMs = endSeekBar.getProgress();
 
-        if (videoUri == null || durationMs <= 0) {
-            showMessage("Please select a video first");
-            return;
+    if (clipEndMs <= clipStartMs) {
+        showMessage("Please select a valid video range.");
+        return;
+    }
+
+    player.seekTo(clipStartMs);
+    player.play();
+}
+
+private Bitmap getSmallFrame(
+        MediaMetadataRetriever retriever,
+        long timeMs
+) {
+    Bitmap frame = retriever.getFrameAtTime(
+            timeMs * 1000,
+            MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+    );
+
+    if (frame == null) return null;
+
+    Bitmap small = Bitmap.createScaledBitmap(
+            frame, 32, 32, true
+    );
+
+    if (small != frame) frame.recycle();
+
+    return small;
+}
+
+private double frameDifference(Bitmap a, Bitmap b) {
+    if (a == null || b == null) return 0;
+
+    long difference = 0;
+    int pixels = a.getWidth() * a.getHeight();
+
+    for (int y = 0; y < a.getHeight(); y++) {
+        for (int x = 0; x < a.getWidth(); x++) {
+            int p1 = a.getPixel(x, y);
+            int p2 = b.getPixel(x, y);
+
+            difference += Math.abs(Color.red(p1) - Color.red(p2));
+            difference += Math.abs(Color.green(p1) - Color.green(p2));
+            difference += Math.abs(Color.blue(p1) - Color.blue(p2));
+        }
+    }
+
+    return difference / (double) (pixels * 3);
+}
+
+private void detectScenes() {
+    if (videoUri == null) {
+        showMessage("Please select a video first.");
+        return;
+    }
+
+    statusText.setText("Detecting scenes...");
+
+    new Thread(() -> {
+        ArrayList<Long> detected = new ArrayList<>();
+
+        MediaMetadataRetriever retriever =
+                new MediaMetadataRetriever();
+
+        Bitmap previous = null;
+
+        try {
+            retriever.setDataSource(this, videoUri);
+
+            for (long time = 1000; time < durationMs; time += 1000) {
+                Bitmap current = getSmallFrame(retriever, time);
+
+                if (current == null) continue;
+
+                if (previous != null &&
+                        frameDifference(previous, current) > 45) {
+                    detected.add(time);
+                }
+
+                if (previous != null) previous.recycle();
+                previous = current;
+            }
+
+            if (previous != null) previous.recycle();
+
+        } catch (Exception e) {
+            runOnUiThread(() ->
+                    showMessage("Scene detection failed.")
+            );
+        } finally {
+            try {
+                retriever.release();
+            } catch (Exception ignored) {}
         }
 
-        bestClips.clear();
+        runOnUiThread(() -> {
+            sceneTimes.clear();
+            sceneTimes.addAll(detected);
 
-        // Create clips around detected scene changes.
-        // All calculations use milliseconds.
-        for (long scene : sceneTimes) {
+            sceneResults.setText(
+                    "Scenes detected: " + sceneTimes.size()
+            );
 
-            long start = Math.max(0, scene - 10000);
-            long end = Math.min(durationMs, scene + 20000);
+            statusText.setText("Scene detection complete!");
+        });
+    }).start();
+}
+    
+private void findBestMoments() {
+    if (videoUri == null) {
+        showMessage("Please select a video first.");
+        return;
+    }
 
-            if (end - start < 5000) {
-                continue;
-            }
+    bestClips.clear();
 
-            boolean overlaps = false;
+    for (long scene : sceneTimes) {
+        long start = Math.max(0, scene - 10000);
+        long end = Math.min(durationMs, scene + 20000);
 
-            for (long[] existing : bestClips) {
-                if (start < existing[1] &&
-                        end > existing[0]) {
-                    overlaps = true;
-                    break;
-                }
-            }
+        if (end - start < 3000) continue;
 
-            if (!overlaps) {
-                bestClips.add(new long[]{start, end});
-            }
+        boolean overlaps = false;
 
-            if (bestClips.size() >= 10) {
+        for (long[] clip : bestClips) {
+            if (start < clip[1] && end > clip[0]) {
+                overlaps = true;
                 break;
             }
         }
 
-        // If no scene changes were found, make simple
-        // time-based suggestions instead.
-        if (bestClips.isEmpty()) {
-
-            long start = 0;
-
-            while (start < durationMs &&
-                    bestClips.size() < 10) {
-
-                long end = Math.min(durationMs, start + 20000);
-
-                if (end - start >= 5000) {
-                    bestClips.add(new long[]{start, end});
-                }
-
-                start += 20000;
-            }
-        }
-
-        if (bestClips.isEmpty()) {
-            bestResults.setText("Video is too short for clip suggestions.");
-            return;
-        }
-
-        StringBuilder result =
-                new StringBuilder("Smart Clip Candidates:\n\n");
-
-        for (int i = 0; i < bestClips.size(); i++) {
-            long[] clip = bestClips.get(i);
-
-            result.append("Clip ")
-                    .append(i + 1)
-                    .append(": ")
-                    .append(formatTime(clip[0]))
-                    .append(" - ")
-                    .append(formatTime(clip[1]))
-                    .append("\n");
-        }
-
-        bestResults.setText(result.toString());
-
-        // Add one selection button for each candidate.
-        for (int i = 0; i < bestClips.size(); i++) {
-
-            final int index = i;
-
-            Button selectClip = makeButton(
-                    "SELECT CLIP " + (i + 1));
-
-            root.addView(selectClip);
-
-            selectClip.setOnClickListener(v ->
-                    selectBestClip(index));
+        if (!overlaps) {
+            bestClips.add(new long[]{start, end});
         }
     }
 
-    // SELECT A SUGGESTED CLIP
-    private void selectBestClip(int index) {
+    if (bestClips.isEmpty()) {
+        for (long start = 0; start < durationMs; start += 20000) {
+            long end = Math.min(durationMs, start + 20000);
 
-        if (index < 0 || index >= bestClips.size()) {
-            showMessage("Invalid clip selection");
-            return;
-        }
-
-        long[] clip = bestClips.get(index);
-
-        clipStartMs = clip[0];
-        clipEndMs = clip[1];
-        selectedClip = index;
-
-        startSeek.setProgress(
-                (int) (clipStartMs * 1000 / durationMs));
-
-        endSeek.setProgress(
-                (int) (clipEndMs * 1000 / durationMs));
-
-        statusText.setText(
-                "Selected Clip " + (index + 1)
-                        + ": " + formatTime(clipStartMs)
-                        + " - " + formatTime(clipEndMs));
-
-        previewSelectedPart();
-    }
-
-    // EXPORT VIDEO
-    private void exportVideo() {
-
-        if (videoUri == null || durationMs <= 0) {
-            showMessage("Please select a video first");
-            return;
-        }
-
-        if (clipEndMs <= clipStartMs) {
-            showMessage("Invalid clip range");
-            return;
-        }
-
-        try {
-            exportButton.setEnabled(false);
-            statusText.setText("Preparing export...");
-
-            File outputDir = getExternalFilesDir(
-                    android.os.Environment.DIRECTORY_MOVIES);
-
-            if (outputDir == null) {
-                throw new Exception("Storage directory unavailable");
+            if (end - start >= 3000) {
+                bestClips.add(new long[]{start, end});
             }
-
-            if (!outputDir.exists()) {
-                outputDir.mkdirs();
-            }
-
-            File outputFile = new File(
-                    outputDir,
-                    "AI_CLIP_" + System.currentTimeMillis() + ".mp4");
-
-            MediaItem clippedItem = new MediaItem.Builder()
-                    .setUri(videoUri)
-                    .setClippingConfiguration(
-                            new MediaItem.ClippingConfiguration.Builder()
-                                    .setStartPositionMs(clipStartMs)
-                                    .setEndPositionMs(clipEndMs)
-                                    .build())
-                    .build();
-
-            EditedMediaItem editedMediaItem =
-                    new EditedMediaItem.Builder(clippedItem).build();
-
-            transformer = new Transformer.Builder(this)
-                    .addListener(new Transformer.Listener() {
-
-                        @Override
-                        public void onCompleted(
-                                Composition composition,
-                                ExportResult exportResult) {
-
-                            runOnUiThread(() -> {
-                                saveToGallery(outputFile);
-                            });
-                        }
-
-                        @Override
-                        public void onError(
-                                Composition composition,
-                                ExportResult exportResult,
-                                ExportException exception) {
-
-                            runOnUiThread(() -> {
-                                exportButton.setEnabled(true);
-                                statusText.setText("Export failed");
-                                showMessage(exception.getMessage());
-                            });
-                        }
-                    })
-                    .build();
-
-            transformer.start(
-                    editedMediaItem,
-                    outputFile.getAbsolutePath());
-
-            statusText.setText("Exporting video...");
-
-        } catch (Exception e) {
-            exportButton.setEnabled(true);
-            showMessage("Export error: " + e.getMessage());
         }
     }
 
-    // SAVE EXPORTED FILE TO PHONE GALLERY
-    private void saveToGallery(File sourceFile) {
+    bestResults.removeAllViews();
 
-        try {
-            if (!sourceFile.exists()) {
-                throw new Exception("Exported file not found");
-            }
+    for (int i = 0; i < bestClips.size(); i++) {
+        final int index = i;
+        long[] clip = bestClips.get(i);
 
-            android.content.ContentValues values =
-                    new android.content.ContentValues();
+        Button button = makeButton(
+                "Clip " + (i + 1) + "  |  "
+                        + formatTime(clip[0]) + " - "
+                        + formatTime(clip[1])
+        );
 
-            values.put(
-                    android.provider.MediaStore.Video.Media.DISPLAY_NAME,
-                    sourceFile.getName());
-
-            values.put(
-                    android.provider.MediaStore.Video.Media.MIME_TYPE,
-                    "video/mp4");
-
-            if (android.os.Build.VERSION.SDK_INT >= 29) {
-                values.put(
-                        android.provider.MediaStore.Video.Media.RELATIVE_PATH,
-                        "Movies/AI Clip Master");
-
-                values.put(
-                        android.provider.MediaStore.Video.Media.IS_PENDING,
-                        1);
-            }
-
-            Uri collection =
-                    android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
-
-            Uri galleryUri = getContentResolver().insert(
-                    collection, values);
-
-            if (galleryUri == null) {
-                throw new Exception("Could not create gallery file");
-            }
-
-            try (
-                    java.io.InputStream input =
-                            new java.io.FileInputStream(sourceFile);
-
-                    java.io.OutputStream output =
-                            getContentResolver().openOutputStream(galleryUri)
-            ) {
-                if (output == null) {
-                    throw new Exception("Could not open gallery file");
-                }
-
-                byte[] buffer = new byte[8192];
-                int length;
-
-                while ((length = input.read(buffer)) != -1) {
-                    output.write(buffer, 0, length);
-                }
-
-                output.flush();
-            }
-
-            if (android.os.Build.VERSION.SDK_INT >= 29) {
-                android.content.ContentValues complete =
-                        new android.content.ContentValues();
-
-                complete.put(
-                        android.provider.MediaStore.Video.Media.IS_PENDING,
-                        0);
-
-                getContentResolver().update(
-                        galleryUri, complete, null, null);
-            }
-
-            exportButton.setEnabled(true);
-            statusText.setText("Export completed!");
-            showMessage("Video saved to Gallery!");
-
-        } catch (Exception e) {
-            exportButton.setEnabled(true);
-            statusText.setText("Gallery save failed");
-            showMessage("Save error: " + e.getMessage());
-        }
+        button.setOnClickListener(v -> selectBestClip(index));
+        bestResults.addView(button);
     }
 
-    // FORMAT TIME AS MM:SS
-    private String formatTime(long milliseconds) {
+    statusText.setText(
+            "Suggested clips: " + bestClips.size()
+    );
+}
 
-        long totalSeconds = Math.max(0, milliseconds) / 1000;
+private void selectBestClip(int index) {
+    if (index < 0 || index >= bestClips.size()) return;
 
-        long minutes = totalSeconds / 60;
-        long seconds = totalSeconds % 60;
+    selectedClip = index;
 
-        return String.format(
-                Locale.getDefault(),
-                "%02d:%02d",
-                minutes,
-                seconds);
+    long[] clip = bestClips.get(index);
+
+    clipStartMs = clip[0];
+    clipEndMs = clip[1];
+
+    startSeekBar.setProgress((int) clipStartMs);
+    endSeekBar.setProgress((int) clipEndMs);
+
+    previewSelectedPart();
+}
+
+private void exportVideo() {
+    if (videoUri == null) {
+        showMessage("Please select a video first.");
+        return;
     }
 
-    private void showMessage(String message) {
-        Toast.makeText(
-                this,
-                message,
-                Toast.LENGTH_LONG).show();
+    clipStartMs = startSeekBar.getProgress();
+    clipEndMs = endSeekBar.getProgress();
+
+    if (clipEndMs <= clipStartMs) {
+        showMessage("Please select a valid video range.");
+        return;
     }
 
-    private int dp(int value) {
-        return (int) (value * getResources()
-                .getDisplayMetrics().density);
-    }
+    try {
+        File outputDir = new File(
+                getExternalFilesDir(null), "Movies"
+        );
 
-    @Override
-    protected void onDestroy() {
-
-        if (transformer != null) {
-            transformer.cancel();
+        if (!outputDir.exists()) {
+            outputDir.mkdirs();
         }
 
-        if (player != null) {
-            player.release();
-            player = null;
-        }
+        File outputFile = new File(
+                outputDir,
+                "AI_Clip_" + System.currentTimeMillis() + ".mp4"
+        );
 
-        super.onDestroy();
+        androidx.media3.common.MediaItem input =
+                new androidx.media3.common.MediaItem.Builder()
+                        .setUri(videoUri)
+                        .setClippingConfiguration(
+                                new androidx.media3.common.MediaItem
+                                        .ClippingConfiguration.Builder()
+                                        .setStartPositionMs(clipStartMs)
+                                        .setEndPositionMs(clipEndMs)
+                                        .build()
+                        )
+                        .build();
+
+        EditedMediaItem editedItem =
+                new EditedMediaItem.Builder(input).build();
+
+        transformer = new Transformer.Builder(this)
+                .addListener(new Transformer.Listener() {
+                    @Override
+                    public void onCompleted(
+                            Composition composition,
+                            ExportResult exportResult
+                    ) {
+                        saveToGallery(outputFile);
+                    }
+
+                    @Override
+                    public void onError(
+                            Composition composition,
+                            ExportResult exportResult,
+                            ExportException exception
+                    ) {
+                        runOnUiThread(() ->
+                                showMessage("Export failed: "
+                                        + exception.getMessage())
+                        );
+                    }
+                })
+                .build();
+
+        statusText.setText("Exporting video...");
+
+        transformer.start(editedItem, outputFile.getAbsolutePath());
+
+    } catch (Exception e) {
+        showMessage("Export error: " + e.getMessage());
     }
 }
 
+private void saveToGallery(File sourceFile) {
+    try {
+        android.content.ContentValues values =
+                new android.content.ContentValues();
+
+        values.put(
+                android.provider.MediaStore.Video.Media.DISPLAY_NAME,
+                sourceFile.getName()
+        );
+
+        values.put(
+                android.provider.MediaStore.Video.Media.MIME_TYPE,
+                "video/mp4"
+        );
+
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            values.put(
+                    android.provider.MediaStore.Video.Media.RELATIVE_PATH,
+                    "Movies/AI Clip Master"
+            );
+
+            values.put(
+                    android.provider.MediaStore.Video.Media.IS_PENDING,
+                    1
+            );
+        }
+
+        android.net.Uri collection =
+                android.provider.MediaStore.Video.Media
+                        .getContentUri(
+                                android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY
+                        );
+
+        android.net.Uri savedUri = getContentResolver().insert(
+                collection, values
+        );
+
+        if (savedUri == null) {
+            showMessage("Could not save video.");
+            return;
+        }
+
+        try (
+                java.io.InputStream input =
+                        new java.io.FileInputStream(sourceFile);
+                java.io.OutputStream output =
+                        getContentResolver().openOutputStream(savedUri)
+        ) {
+            if (output == null) {
+                throw new java.io.IOException("Output stream unavailable");
+            }
+
+            byte[] buffer = new byte[8192];
+            int length;
+
+            while ((length = input.read(buffer)) > 0) {
+                output.write(buffer, 0, length);
+            }
+        }
+
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            android.content.ContentValues completed =
+                    new android.content.ContentValues();
+
+            completed.put(
+                    android.provider.MediaStore.Video.Media.IS_PENDING,
+                    0
+            );
+
+            getContentResolver().update(
+                    savedUri, completed, null, null
+            );
+        }
+
+        runOnUiThread(() -> {
+            statusText.setText("Video saved to Gallery!");
+            showMessage("Export successful!");
+        });
+
+    } catch (Exception e) {
+        showMessage("Gallery save failed: " + e.getMessage());
+    }
+}
+
+private Button makeButton(String text) {
+    Button button = new Button(this);
+    button.setText(text);
+    return button;
+}
+
+private TextView makeText(String text, int size) {
+    TextView view = new TextView(this);
+    view.setText(text);
+    view.setTextSize(size);
+    view.setTextColor(Color.WHITE);
+    return view;
+}
+
+private String formatTime(long milliseconds) {
+    long seconds = milliseconds / 1000;
+    return String.format(
+            Locale.getDefault(),
+            "%02d:%02d",
+            seconds / 60,
+            seconds % 60
+    );
+}
+
+private void showMessage(String message) {
+    runOnUiThread(() ->
+            android.widget.Toast.makeText(
+                    this,
+                    message,
+                    android.widget.Toast.LENGTH_SHORT
+            ).show()
+    );
+}
+
+private int dp(int value) {
+    return (int) (
+            value * getResources().getDisplayMetrics().density
+    );
+}
+
+@Override
+protected void onDestroy() {
+    if (transformer != null) {
+        transformer.cancel();
+    }
+
+    if (player != null) {
+        player.release();
+        player = null;
+    }
+
+    super.onDestroy();
+}
     
