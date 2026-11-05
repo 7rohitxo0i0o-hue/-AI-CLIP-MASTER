@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "530051120233",
+    "project_id": "ai-clip-master",
+    "storage_bucket": "ai-clip-master.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:530051120233:android:94ce51d52ec436c80436f8",
+        "android_client_info": {
+          "package_name": "com.aiclipmaster.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBm8rgcWeG-tB4d_So3qDAdd8GsKCVj51w"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
