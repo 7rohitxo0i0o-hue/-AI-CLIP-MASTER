@@ -136,6 +136,9 @@ public class MainActivity extends Activity {
         TextView bestMomentsResults = new TextView(this);
         bestMomentsResults.setText("Best moments will appear here");
         layout.addView(bestMomentsResults);
+        LinearLayout clipButtonsLayout = new LinearLayout(this);
+clipButtonsLayout.setOrientation(LinearLayout.VERTICAL);
+layout.addView(clipButtonsLayout);
 
         bestMomentsButton.setOnClickListener(v -> {
             if (selectedVideoUri == null || durationMs <= 0) {
@@ -168,27 +171,47 @@ public class MainActivity extends Activity {
 
             generateSmartClips(sceneTimes);
 
-            StringBuilder result = new StringBuilder();
-            result.append("Smart Clip Candidates:\n\n");
+            clipButtonsLayout.removeAllViews();
 
-            for (int i = 0; i < smartClipCandidates.size(); i++) {
-                long[] clip = smartClipCandidates.get(i);
-                result.append("Clip ")
-                        .append(i + 1)
-                        .append(": ")
-                        .append(formatTime(clip[0] * 1000))
-                        .append(" - ")
-                        .append(formatTime(clip[1] * 1000))
-                        .append(" (")
-                        .append(clip[1] - clip[0])
-                        .append(" sec)\n");
-            }
+StringBuilder result = new StringBuilder();
+result.append("Smart Clip Candidates:\n\n");
 
-            if (smartClipCandidates.isEmpty()) {
-                result.append("No suitable clips found.");
-            }
+for (int i = 0; i < smartClipCandidates.size(); i++) {
+    long[] clip = smartClipCandidates.get(i);
 
-            bestMomentsResults.setText(result.toString());
+    result.append("Clip ")
+            .append(i + 1)
+            .append(": ")
+            .append(formatTime(clip[0] * 1000))
+            .append(" - ")
+            .append(formatTime(clip[1] * 1000))
+            .append(" (")
+            .append(clip[1] - clip[0])
+            .append(" sec)\n");
+
+    final long clipStart = clip[0] * 1000;
+    final long clipEnd = clip[1] * 1000;
+
+    Button clipButton = new Button(this);
+    clipButton.setText("SELECT CLIP " + (i + 1));
+
+    clipButton.setOnClickListener(view -> {
+        startMs = clipStart;
+        endMs = clipEnd;
+        updateLabels();
+        player.seekTo(startMs);
+        Toast.makeText(this, "Clip selected",
+                Toast.LENGTH_SHORT).show();
+    });
+
+    clipButtonsLayout.addView(clipButton);
+}
+
+if (smartClipCandidates.isEmpty()) {
+    result.append("No suitable clips found.");
+}
+
+bestMomentsResults.setText(result.toString());
         });
 
         sceneButton.setOnClickListener(v -> detectScenes());
