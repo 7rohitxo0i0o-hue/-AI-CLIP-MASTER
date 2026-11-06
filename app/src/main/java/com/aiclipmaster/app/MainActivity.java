@@ -467,66 +467,64 @@ public class MainActivity extends Activity {
         }).start();
     }
         private void findBestMoments() {
-        if (videoUri == null) {
-            showMessage("Please select a video first");
-            return;
+    if (videoUri == null) {
+        showMessage("Please select a video first");
+        return;
+    }
+
+    bestClips.clear();
+    bestResults.removeAllViews();
+
+    long clipLength = Math.min(8000, durationMs);
+
+    if (clipLength < 3000) {
+        showMessage("Video is too short");
+        return;
+    }
+
+    ArrayList<Long> selectedScenes = new ArrayList<>();
+    long lastScene = -clipLength;
+
+    for (long scene : sceneTimes) {
+        if (scene - lastScene >= clipLength) {
+            selectedScenes.add(scene);
+            lastScene = scene;
         }
+    }
 
-        bestClips.clear();
-        bestResults.removeAllViews();
+    if (selectedScenes.isEmpty()) {
+        selectedScenes.add(durationMs / 2);
+    }
 
-        if (sceneTimes.isEmpty()) {
-            long chunk = 20000;
+    for (long scene : selectedScenes) {
+        long start = Math.max(0, scene - clipLength / 2);
+        long end = Math.min(durationMs, start + clipLength);
 
-            for (long start = 0; start < durationMs; start += chunk) {
-                long end = Math.min(start + chunk, durationMs);
-
-                if (end - start >= 3000) {
-                    bestClips.add(new long[]{start, end});
-                }
-            }
-        } else {
-            for (int i = 0; i < sceneTimes.size(); i++) {
-                long scene = sceneTimes.get(i);
-
-                long start = Math.max(0, scene - 10000);
-                long end = Math.min(durationMs, scene + 10000);
-
-                if (end - start >= 3000) {
-                    bestClips.add(new long[]{start, end});
-                }
-            }
+        if (end - start >= 3000) {
+            bestClips.add(new long[]{start, end});
         }
+    }
 
-        if (bestClips.isEmpty()) {
-            showMessage("No clips found");
-            return;
-        }
+    bestResults.addView(
+            makeText("Suggested clips: " + bestClips.size(), 18)
+    );
 
-        bestResults.addView(
-                makeText("Suggested clips: " + bestClips.size(), 18)
+    for (int i = 0; i < bestClips.size(); i++) {
+        final int index = i;
+        long[] clip = bestClips.get(i);
+
+        Button clipButton = makeButton(
+                "CLIP " + (i + 1)
+                + " | " + formatTime(clip[0])
+                + " - " + formatTime(clip[1])
         );
 
-        for (int i = 0; i < bestClips.size(); i++) {
-            final int index = i;
-
-            long[] clip = bestClips.get(i);
-
-            Button clipButton = makeButton(
-                    "CLIP " + (i + 1)
-                    + "  |  "
-                    + formatTime(clip[0])
-                    + " - "
-                    + formatTime(clip[1])
-            );
-
-            bestResults.addView(clipButton);
-
-            clipButton.setOnClickListener(v -> selectBestClip(index));
-        }
-
-        statusText.setText("Clip suggestions ready");
+        bestResults.addView(clipButton);
+        clipButton.setOnClickListener(v -> selectBestClip(index));
     }
+
+    statusText.setText("Clip suggestions ready");
+        }
 
     private void selectBestClip(int index) {
         if (index < 0 || index >= bestClips.size()) {
