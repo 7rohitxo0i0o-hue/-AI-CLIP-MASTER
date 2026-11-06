@@ -307,21 +307,40 @@ public class MainActivity extends Activity {
     }
 
     private void previewSelectedPart() {
-        if (videoUri == null) {
-            showMessage("Please select a video first");
-            return;
-        }
+    if (videoUri == null) {
+        showMessage("Please select a video first");
+        return;
+    }
 
-        clipStartMs = startSeekBar.getProgress();
-        clipEndMs = endSeekBar.getProgress();
+    clipStartMs = startSeekBar.getProgress();
+    clipEndMs = endSeekBar.getProgress();
 
-        if (clipEndMs <= clipStartMs) {
-            showMessage("Invalid video selection");
-            return;
-        }
+    if (clipEndMs <= clipStartMs) {
+        showMessage("Invalid video selection");
+        return;
+    }
 
-        player.seekTo(clipStartMs);
+    try {
+        MediaItem.ClippingConfiguration clipping =
+                new MediaItem.ClippingConfiguration.Builder()
+                        .setStartPositionMs(clipStartMs)
+                        .setEndPositionMs(clipEndMs)
+                        .build();
+
+        MediaItem clippedItem = new MediaItem.Builder()
+                .setUri(videoUri)
+                .setClippingConfiguration(clipping)
+                .build();
+
+        player.setMediaItem(clippedItem);
+        player.prepare();
         player.play();
+
+        statusText.setText("Playing selected clip...");
+
+    } catch (Exception e) {
+        showMessage("Preview failed: " + e.getMessage());
+    }
     }
 
     private Bitmap getSmallFrame(
