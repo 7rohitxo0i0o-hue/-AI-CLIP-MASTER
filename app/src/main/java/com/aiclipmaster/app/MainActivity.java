@@ -1,4 +1,3 @@
-
 package com.aiclipmaster.app;
 
 import android.app.Activity;
@@ -8,14 +7,19 @@ import android.net.Uri;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.media.MediaMetadataRetriever;
-import android.view.View;
+import android.view.Gravity;
 import android.widget.*;
+
+import android.content.ContentValues;
+import android.provider.MediaStore;
+import android.os.Build;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Locale;
 
 import com.google.firebase.auth.FirebaseAuth;
@@ -40,6 +44,7 @@ public class MainActivity extends Activity {
     private Transformer transformer;
 
     private Uri videoUri;
+
     private long durationMs = 0;
     private long clipStartMs = 0;
     private long clipEndMs = 0;
@@ -49,14 +54,17 @@ public class MainActivity extends Activity {
     private LinearLayout sceneResults;
 
     private TextView statusText;
-
     private SeekBar startSeekBar;
     private SeekBar endSeekBar;
 
-    private ArrayList<Long> sceneTimes = new ArrayList<>();
-    private ArrayList<long[]> bestClips = new ArrayList<>();
+    private final ArrayList<Long> sceneTimes = new ArrayList<>();
+    private final ArrayList<long[]> bestClips = new ArrayList<>();
 
     private int selectedClip = -1;
+
+    private static final int VIDEO_REQUEST_CODE = 100;
+    private static final long MIN_CLIP_MS = 3000;
+    private static final long MAX_CLIP_MS = 30000;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -76,15 +84,15 @@ public class MainActivity extends Activity {
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(24), dp(35), dp(24), dp(24));
-        root.setGravity(android.view.Gravity.CENTER);
+        root.setGravity(Gravity.CENTER);
         root.setBackgroundColor(Color.rgb(18, 18, 30));
 
         TextView title = makeText("AI CLIP MASTER", 28);
-        title.setGravity(android.view.Gravity.CENTER);
+        title.setGravity(Gravity.CENTER);
         root.addView(title);
 
         TextView subtitle = makeText("Login or Create Account", 16);
-        subtitle.setGravity(android.view.Gravity.CENTER);
+        subtitle.setGravity(Gravity.CENTER);
         root.addView(subtitle);
 
         EditText email = new EditText(this);
@@ -115,8 +123,12 @@ public class MainActivity extends Activity {
                 return;
             }
 
+            login.setEnabled(false);
+
             auth.signInWithEmailAndPassword(e, p)
                     .addOnCompleteListener(task -> {
+                        login.setEnabled(true);
+
                         if (task.isSuccessful()) {
                             startEditor();
                         } else {
@@ -136,8 +148,12 @@ public class MainActivity extends Activity {
                 return;
             }
 
+            signup.setEnabled(false);
+
             auth.createUserWithEmailAndPassword(e, p)
                     .addOnCompleteListener(task -> {
+                        signup.setEnabled(true);
+
                         if (task.isSuccessful()) {
                             startEditor();
                         } else {
@@ -155,13 +171,14 @@ public class MainActivity extends Activity {
         buildInterface();
 
         player = new ExoPlayer.Builder(this).build();
-
         playerView.setPlayer(player);
 
         player.addListener(new androidx.media3.common.Player.Listener() {
+
             @Override
             public void onPlaybackStateChanged(int state) {
-                if (state == androidx.media3.common.Player.STATE_ENDED) {
+                if (state ==
+                        androidx.media3.common.Player.STATE_ENDED) {
                     statusText.setText("Preview complete");
                 }
             }
@@ -179,18 +196,25 @@ public class MainActivity extends Activity {
         scroll.addView(root);
 
         TextView title = makeText("AI CLIP MASTER", 26);
+        title.setGravity(Gravity.CENTER);
         root.addView(title);
+
+        TextView subtitle = makeText(
+                "AI Video Editor & Shorts Maker", 14
+        );
+        subtitle.setGravity(Gravity.CENTER);
+        root.addView(subtitle);
 
         Button logout = makeButton("LOGOUT");
         root.addView(logout);
 
         logout.setOnClickListener(v -> {
-            if (player != null) {
-                player.release();
-                player = null;
-            }
+
+            releasePlayer();
 
             auth.signOut();
+            videoUri = null;
+
             showAuthScreen();
         });
 
@@ -199,10 +223,12 @@ public class MainActivity extends Activity {
         select.setOnClickListener(v -> selectVideo());
 
         playerView = new PlayerView(this);
-        playerView.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(220)
-        ));
+        playerView.setLayoutParams(
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        dp(220)
+                )
+        );
         root.addView(playerView);
 
         statusText = makeText("Select a video to start", 16);
@@ -210,9 +236,11 @@ public class MainActivity extends Activity {
 
         root.addView(makeText("TRIM VIDEO", 20));
 
+        root.addView(makeText("Start Position", 14));
         startSeekBar = new SeekBar(this);
         root.addView(startSeekBar);
 
+        root.addView(makeText("End Position", 14));
         endSeekBar = new SeekBar(this);
         root.addView(endSeekBar);
 
@@ -242,12 +270,13 @@ public class MainActivity extends Activity {
 
         setContentView(scroll);
     }
-    
     private void selectVideo() {
+
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.setType("video/*");
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        startActivityForResult(intent, 100);
+
+        startActivityForResult(intent, VIDEO_REQUEST_CODE);
     }
 
     @Override
@@ -258,91 +287,128 @@ public class MainActivity extends Activity {
     ) {
         super.onActivityResult(requestCode, resultCode, data);
 
-        if (requestCode == 100
-                && resultCode == RESULT_OK
-                && data != null
-                && data.getData() != null) {
+        if (requestCode != VIDEO_REQUEST_CODE
+                || resultCode != RESULT_OK
+                || data == null
+                || data.getData() == null) {
+            return;
+        }
 
-            videoUri = data.getData();
+        videoUri = data.getData();
+
+        try {
+            getContentResolver().takePersistableUriPermission(
+                    videoUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+            );
+        } catch (Exception ignored) {
+        }
+
+        loadSelectedVideo();
+    }
+
+    private void loadSelectedVideo() {
+
+        MediaMetadataRetriever retriever =
+                new MediaMetadataRetriever();
+
+        try {
+            retriever.setDataSource(this, videoUri);
+
+            String duration = retriever.extractMetadata(
+                    MediaMetadataRetriever.METADATA_KEY_DURATION
+            );
+
+            if (duration == null) {
+                throw new Exception("Video duration unavailable");
+            }
+
+            durationMs = Long.parseLong(duration);
+
+            if (durationMs <= 0 || durationMs > Integer.MAX_VALUE) {
+                throw new Exception("Unsupported video duration");
+            }
+
+            clipStartMs = 0;
+            clipEndMs = durationMs;
+
+            startSeekBar.setMax((int) durationMs);
+            endSeekBar.setMax((int) durationMs);
+
+            startSeekBar.setProgress(0);
+            endSeekBar.setProgress((int) durationMs);
+
+            sceneTimes.clear();
+            bestClips.clear();
+            selectedClip = -1;
+
+            sceneResults.removeAllViews();
+            bestResults.removeAllViews();
+
+            player.setMediaItem(MediaItem.fromUri(videoUri));
+            player.prepare();
+
+            statusText.setText(
+                    "Video loaded: " + formatTime(durationMs)
+            );
+
+        } catch (Exception e) {
+
+            showMessage(
+                    "Video loading failed: " + e.getMessage()
+            );
+
+        } finally {
 
             try {
-                getContentResolver().takePersistableUriPermission(
-                        videoUri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION
-                );
-            } catch (Exception ignored) {}
-
-            try {
-                MediaMetadataRetriever retriever =
-                        new MediaMetadataRetriever();
-
-                retriever.setDataSource(this, videoUri);
-
-                String duration = retriever.extractMetadata(
-                        MediaMetadataRetriever.METADATA_KEY_DURATION
-                );
-
-                durationMs = Long.parseLong(duration);
-
-                clipStartMs = 0;
-                clipEndMs = durationMs;
-
-                startSeekBar.setMax((int) durationMs);
-                endSeekBar.setMax((int) durationMs);
-
-                startSeekBar.setProgress(0);
-                endSeekBar.setProgress((int) durationMs);
-
-                player.setMediaItem(MediaItem.fromUri(videoUri));
-                player.prepare();
-
-                statusText.setText("Video loaded successfully");
-
                 retriever.release();
-
-            } catch (Exception e) {
-                showMessage("Video loading failed: " + e.getMessage());
+            } catch (Exception ignored) {
             }
         }
     }
 
     private void previewSelectedPart() {
-    if (videoUri == null) {
-        showMessage("Please select a video first");
-        return;
+
+        if (videoUri == null) {
+            showMessage("Please select a video first");
+            return;
+        }
+
+        clipStartMs = startSeekBar.getProgress();
+        clipEndMs = endSeekBar.getProgress();
+
+        if (clipEndMs <= clipStartMs) {
+            showMessage("Invalid video selection");
+            return;
+        }
+
+        try {
+
+            MediaItem.ClippingConfiguration clipping =
+                    new MediaItem.ClippingConfiguration.Builder()
+                            .setStartPositionMs(clipStartMs)
+                            .setEndPositionMs(clipEndMs)
+                            .build();
+
+            MediaItem clippedItem = new MediaItem.Builder()
+                    .setUri(videoUri)
+                    .setClippingConfiguration(clipping)
+                    .build();
+
+            player.setMediaItem(clippedItem);
+            player.prepare();
+            player.play();
+
+            statusText.setText("Playing selected clip...");
+
+        } catch (Exception e) {
+
+            showMessage(
+                    "Preview failed: " + e.getMessage()
+            );
+        }
     }
-
-    clipStartMs = startSeekBar.getProgress();
-    clipEndMs = endSeekBar.getProgress();
-
-    if (clipEndMs <= clipStartMs) {
-        showMessage("Invalid video selection");
-        return;
-    }
-
-    try {
-        MediaItem.ClippingConfiguration clipping =
-                new MediaItem.ClippingConfiguration.Builder()
-                        .setStartPositionMs(clipStartMs)
-                        .setEndPositionMs(clipEndMs)
-                        .build();
-
-        MediaItem clippedItem = new MediaItem.Builder()
-                .setUri(videoUri)
-                .setClippingConfiguration(clipping)
-                .build();
-
-        player.setMediaItem(clippedItem);
-        player.prepare();
-        player.play();
-
-        statusText.setText("Playing selected clip...");
-
-    } catch (Exception e) {
-        showMessage("Preview failed: " + e.getMessage());
-    }
-    }
-
+    
     private Bitmap getSmallFrame(
             MediaMetadataRetriever retriever,
             long timeMs
@@ -352,7 +418,9 @@ public class MainActivity extends Activity {
                 MediaMetadataRetriever.OPTION_CLOSEST_SYNC
         );
 
-        if (frame == null) return null;
+        if (frame == null) {
+            return null;
+        }
 
         Bitmap small = Bitmap.createScaledBitmap(
                 frame, 32, 32, true
@@ -366,7 +434,10 @@ public class MainActivity extends Activity {
     }
 
     private double frameDifference(Bitmap a, Bitmap b) {
-        if (a == null || b == null) return 0;
+
+        if (a == null || b == null) {
+            return 0;
+        }
 
         long difference = 0;
         int pixels = a.getWidth() * a.getHeight();
@@ -395,6 +466,7 @@ public class MainActivity extends Activity {
     }
 
     private void detectScenes() {
+
         if (videoUri == null) {
             showMessage("Please select a video first");
             return;
@@ -403,6 +475,7 @@ public class MainActivity extends Activity {
         statusText.setText("Detecting scenes...");
 
         new Thread(() -> {
+
             ArrayList<Long> detected = new ArrayList<>();
 
             MediaMetadataRetriever retriever =
@@ -411,22 +484,29 @@ public class MainActivity extends Activity {
             Bitmap previous = null;
 
             try {
+
                 retriever.setDataSource(this, videoUri);
 
                 for (long time = 1000;
                      time < durationMs;
                      time += 1000) {
 
-                    Bitmap current = getSmallFrame(retriever, time);
+                    Bitmap current = getSmallFrame(
+                            retriever, time
+                    );
 
-                    if (current == null) continue;
+                    if (current == null) {
+                        continue;
+                    }
 
                     if (previous != null
                             && frameDifference(previous, current) > 45) {
+
                         detected.add(time);
                     }
 
-                    if (previous != null) {
+                    if (previous != null
+                            && !previous.isRecycled()) {
                         previous.recycle();
                     }
 
@@ -434,21 +514,27 @@ public class MainActivity extends Activity {
                 }
 
             } catch (Exception e) {
+
                 runOnUiThread(() ->
-                        showMessage("Scene detection failed")
+                        showMessage("Scene detection failed: "
+                                + e.getMessage())
                 );
 
             } finally {
-                if (previous != null && !previous.isRecycled()) {
+
+                if (previous != null
+                        && !previous.isRecycled()) {
                     previous.recycle();
                 }
 
                 try {
                     retriever.release();
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                }
             }
 
             runOnUiThread(() -> {
+
                 sceneTimes.clear();
                 sceneTimes.addAll(detected);
 
@@ -456,77 +542,147 @@ public class MainActivity extends Activity {
 
                 sceneResults.addView(
                         makeText(
-                                "Scenes detected: " + sceneTimes.size(),
+                                "Scene changes detected: "
+                                        + sceneTimes.size(),
                                 16
                         )
                 );
 
-                statusText.setText("Scene detection complete!");
+                statusText.setText(
+                        "Scene detection complete!"
+                );
             });
 
         }).start();
     }
-        private void findBestMoments() {
-    if (videoUri == null) {
-        showMessage("Please select a video first");
-        return;
-    }
 
-    bestClips.clear();
-    bestResults.removeAllViews();
+    private void findBestMoments() {
 
-    long clipLength = Math.min(8000, durationMs);
-
-    if (clipLength < 3000) {
-        showMessage("Video is too short");
-        return;
-    }
-
-    ArrayList<Long> selectedScenes = new ArrayList<>();
-    long lastScene = -clipLength;
-
-    for (long scene : sceneTimes) {
-        if (scene - lastScene >= clipLength) {
-            selectedScenes.add(scene);
-            lastScene = scene;
+        if (videoUri == null) {
+            showMessage("Please select a video first");
+            return;
         }
-    }
 
-    if (selectedScenes.isEmpty()) {
-        selectedScenes.add(durationMs / 2);
-    }
+        bestClips.clear();
+        bestResults.removeAllViews();
 
-    for (long scene : selectedScenes) {
-        long start = Math.max(0, scene - clipLength / 2);
-        long end = Math.min(durationMs, start + clipLength);
+        if (durationMs < MIN_CLIP_MS) {
+            showMessage("Video is too short");
+            return;
+        }
 
-        if (end - start >= 3000) {
+        ArrayList<Long> points =
+                new ArrayList<>(sceneTimes);
+
+        Collections.sort(points);
+
+        if (points.isEmpty()) {
+            points.add(durationMs / 2);
+        }
+
+        long previousEnd = -1;
+
+        for (int i = 0; i < points.size(); i++) {
+
+            long scene = points.get(i);
+
+            long previousScene =
+                    i == 0 ? 0 : points.get(i - 1);
+
+            long nextScene =
+                    i == points.size() - 1
+                            ? durationMs
+                            : points.get(i + 1);
+
+            long start = Math.max(
+                    0,
+                    Math.max(previousScene, scene - 10000)
+            );
+
+            long end = Math.min(
+                    durationMs,
+                    Math.min(nextScene, scene + 10000)
+            );
+
+            if (end - start < MIN_CLIP_MS) {
+                start = Math.max(
+                        0,
+                        scene - MIN_CLIP_MS / 2
+                );
+
+                end = Math.min(
+                        durationMs,
+                        start + MIN_CLIP_MS
+                );
+            }
+
+            if (end - start > MAX_CLIP_MS) {
+                end = start + MAX_CLIP_MS;
+            }
+
+            if (end - start < MIN_CLIP_MS) {
+                continue;
+            }
+
+            // Skip overlapping or duplicate suggestions.
+            if (previousEnd >= 0 && start < previousEnd) {
+                continue;
+            }
+
             bestClips.add(new long[]{start, end});
+            previousEnd = end;
         }
-    }
 
-    bestResults.addView(
-            makeText("Suggested clips: " + bestClips.size(), 18)
-    );
+        if (bestClips.isEmpty()) {
 
-    for (int i = 0; i < bestClips.size(); i++) {
-        final int index = i;
-        long[] clip = bestClips.get(i);
+            long length = Math.min(
+                    MAX_CLIP_MS,
+                    durationMs
+            );
 
-        Button clipButton = makeButton(
-                "CLIP " + (i + 1)
-                + " | " + formatTime(clip[0])
-                + " - " + formatTime(clip[1])
+            long start = Math.max(
+                    0,
+                    (durationMs - length) / 2
+            );
+
+            bestClips.add(new long[]{
+                    start,
+                    start + length
+            });
+        }
+
+        bestResults.addView(
+                makeText(
+                        "Suggested clips: " + bestClips.size(),
+                        18
+                )
         );
 
-        bestResults.addView(clipButton);
-        clipButton.setOnClickListener(v -> selectBestClip(index));
-    }
+        for (int i = 0; i < bestClips.size(); i++) {
 
-    statusText.setText("Clip suggestions ready");
+            final int index = i;
+            long[] clip = bestClips.get(i);
+
+            Button clipButton = makeButton(
+                    "CLIP " + (i + 1)
+                            + " | " + formatTime(clip[0])
+                            + " - " + formatTime(clip[1])
+            );
+
+            bestResults.addView(clipButton);
+
+            clipButton.setOnClickListener(
+                    v -> selectBestClip(index)
+            );
         }
 
+        statusText.setText(
+                "Smart clip suggestions ready"
+        );
+    }
+
     private void selectBestClip(int index) {
+
         if (index < 0 || index >= bestClips.size()) {
             return;
         }
@@ -541,10 +697,13 @@ public class MainActivity extends Activity {
         clipStartMs = clip[0];
         clipEndMs = clip[1];
 
-        statusText.setText("Clip " + (index + 1) + " selected");
+        statusText.setText(
+                "Clip " + (index + 1) + " selected"
+        );
     }
-
+    
     private void exportVideo() {
+
         if (videoUri == null) {
             showMessage("Please select a video first");
             return;
@@ -559,8 +718,10 @@ public class MainActivity extends Activity {
         }
 
         try {
+
             if (transformer != null) {
                 transformer.cancel();
+                transformer = null;
             }
 
             File outputFile = new File(
@@ -602,7 +763,7 @@ public class MainActivity extends Activity {
                             runOnUiThread(() ->
                                     showMessage(
                                             "Export failed: "
-                                            + exception.getMessage()
+                                                    + exception.getMessage()
                                     )
                             );
                         }
@@ -617,39 +778,44 @@ public class MainActivity extends Activity {
             );
 
         } catch (Exception e) {
+
             showMessage("Export error: " + e.getMessage());
         }
     }
 
     private void saveToGallery(File file) {
+
+        Uri galleryUri = null;
+
         try {
-            android.content.ContentValues values =
-                    new android.content.ContentValues();
+
+            ContentValues values = new ContentValues();
 
             values.put(
-                    android.provider.MediaStore.Video.Media.DISPLAY_NAME,
+                    MediaStore.Video.Media.DISPLAY_NAME,
                     "AI_CLIP_" + System.currentTimeMillis() + ".mp4"
             );
 
             values.put(
-                    android.provider.MediaStore.Video.Media.MIME_TYPE,
+                    MediaStore.Video.Media.MIME_TYPE,
                     "video/mp4"
             );
 
-            if (android.os.Build.VERSION.SDK_INT >= 29) {
+            if (Build.VERSION.SDK_INT >= 29) {
+
                 values.put(
-                        android.provider.MediaStore.Video.Media.RELATIVE_PATH,
+                        MediaStore.Video.Media.RELATIVE_PATH,
                         "Movies/AI CLIP MASTER"
                 );
 
                 values.put(
-                        android.provider.MediaStore.Video.Media.IS_PENDING,
+                        MediaStore.Video.Media.IS_PENDING,
                         1
                 );
             }
 
-            Uri galleryUri = getContentResolver().insert(
-                    android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+            galleryUri = getContentResolver().insert(
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
                     values
             );
 
@@ -662,6 +828,7 @@ public class MainActivity extends Activity {
                     OutputStream output =
                             getContentResolver().openOutputStream(galleryUri)
             ) {
+
                 if (output == null) {
                     throw new Exception("Could not open Gallery file");
                 }
@@ -674,12 +841,12 @@ public class MainActivity extends Activity {
                 }
             }
 
-            if (android.os.Build.VERSION.SDK_INT >= 29) {
-                android.content.ContentValues updateValues =
-                        new android.content.ContentValues();
+            if (Build.VERSION.SDK_INT >= 29) {
+
+                ContentValues updateValues = new ContentValues();
 
                 updateValues.put(
-                        android.provider.MediaStore.Video.Media.IS_PENDING,
+                        MediaStore.Video.Media.IS_PENDING,
                         0
                 );
 
@@ -694,36 +861,53 @@ public class MainActivity extends Activity {
             file.delete();
 
             runOnUiThread(() -> {
+
                 statusText.setText("Video saved to Gallery!");
                 showMessage("Export successful!");
             });
 
         } catch (Exception e) {
+
+            if (galleryUri != null) {
+                getContentResolver().delete(
+                        galleryUri,
+                        null,
+                        null
+                );
+            }
+
             runOnUiThread(() ->
-                    showMessage("Gallery save failed: " + e.getMessage())
+                    showMessage(
+                            "Gallery save failed: " + e.getMessage()
+                    )
             );
         }
     }
 
     private Button makeButton(String text) {
+
         Button button = new Button(this);
         button.setText(text);
         button.setAllCaps(false);
+
         return button;
     }
 
     private TextView makeText(String text, int size) {
+
         TextView view = new TextView(this);
+
         view.setText(text);
         view.setTextSize(size);
         view.setTextColor(Color.WHITE);
         view.setPadding(0, dp(8), 0, dp(8));
+
         return view;
     }
 
     private String formatTime(long timeMs) {
-        long seconds = timeMs / 1000;
 
+        long seconds = timeMs / 1000;
         long minutes = seconds / 60;
         seconds = seconds % 60;
 
@@ -736,6 +920,7 @@ public class MainActivity extends Activity {
     }
 
     private void showMessage(String message) {
+
         runOnUiThread(() ->
                 Toast.makeText(
                         MainActivity.this,
@@ -746,23 +931,30 @@ public class MainActivity extends Activity {
     }
 
     private int dp(int value) {
+
         return (int) (
                 value * getResources()
                         .getDisplayMetrics().density
         );
     }
 
-    @Override
-    protected void onDestroy() {
-        if (transformer != null) {
-            transformer.cancel();
-            transformer = null;
-        }
+    private void releasePlayer() {
 
         if (player != null) {
             player.release();
             player = null;
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+
+        if (transformer != null) {
+            transformer.cancel();
+            transformer = null;
+        }
+
+        releasePlayer();
 
         super.onDestroy();
     }
