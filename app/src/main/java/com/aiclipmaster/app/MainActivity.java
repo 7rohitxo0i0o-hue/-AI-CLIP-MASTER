@@ -267,7 +267,16 @@ public class MainActivity extends Activity {
         bestResults = new LinearLayout(this);
         bestResults.setOrientation(LinearLayout.VERTICAL);
         root.addView(bestResults);
+Button captions = makeButton("AUTO CAPTIONS");
+root.addView(captions);
 
+captions.setOnClickListener(v -> {
+    Intent intent = new Intent(
+            MainActivity.this,
+            CaptionsActivity.class
+    );
+    startActivity(intent);
+});
         setContentView(scroll);
     }
     private void selectVideo() {
