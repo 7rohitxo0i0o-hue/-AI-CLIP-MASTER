@@ -5,13 +5,13 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.graphics.Color;
 import android.view.Gravity;
+import android.webkit.WebView;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
 
 import androidx.webkit.WebViewAssetLoader;
+import androidx.webkit.WebViewClientCompat;
 
 public class CaptionsActivity extends Activity {
 
@@ -41,7 +41,6 @@ public class CaptionsActivity extends Activity {
         root.addView(statusText);
 
         webView = new WebView(this);
-
         webView.getSettings().setJavaScriptEnabled(true);
         webView.getSettings().setDomStorageEnabled(true);
 
@@ -53,7 +52,8 @@ public class CaptionsActivity extends Activity {
                         )
                         .build();
 
-        webView.setWebViewClient(new WebViewClient() {
+        webView.setWebViewClient(new WebViewClientCompat() {
+
             @Override
             public android.webkit.WebResourceResponse shouldInterceptRequest(
                     WebView view,
@@ -66,6 +66,7 @@ public class CaptionsActivity extends Activity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
                 statusText.setText("Captions page loaded");
             }
         });
