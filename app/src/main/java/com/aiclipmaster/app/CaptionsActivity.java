@@ -1,4 +1,3 @@
-
 package com.aiclipmaster.app;
 
 import android.app.Activity;
