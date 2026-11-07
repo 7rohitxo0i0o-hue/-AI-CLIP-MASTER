@@ -1,11 +1,65 @@
+
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI CLIP MASTER</title>
+    <style>
+        body {
+            background: #12121e;
+            color: white;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        button {
+            padding: 14px;
+            width: 100%;
+            margin-top: 15px;
+            font-size: 16px;
+        }
+        #status {
+            margin-top: 20px;
+            white-space: pre-wrap;
+        }
+    </style>
 </head>
-<body style="background:#12121e;color:white;">
+<body>
     <h2>AI CLIP MASTER</h2>
-    <h3>Auto Captions Page Loaded</h3>
+    <h3>Auto Captions - System Test</h3>
+
+    <button onclick="checkFiles()">CHECK SHRUTI FILES</button>
+
+    <div id="status">Ready for testing.</div>
+
+    <script>
+        async function checkFiles() {
+            const status = document.getElementById("status");
+            status.textContent = "Checking files...";
+
+            const files = [
+                "shruti-worker.js",
+                "capture-worklet.js",
+                "needle/needle.js",
+                "needle/needle.wasm"
+            ];
+
+            let results = [];
+
+            for (const file of files) {
+                try {
+                    const response = await fetch(file);
+                    results.push(
+                        (response.ok ? "OK: " : "FAILED: ") +
+                        file
+                    );
+                } catch (error) {
+                    results.push("ERROR: " + file);
+                }
+            }
+
+            status.textContent = results.join("\n");
+        }
+    </script>
 </body>
 </html>
