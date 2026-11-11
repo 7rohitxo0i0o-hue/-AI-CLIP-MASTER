@@ -271,10 +271,19 @@ Button captions = makeButton("AUTO CAPTIONS");
 root.addView(captions);
 
 captions.setOnClickListener(v -> {
+
+    if (videoUri == null) {
+        showMessage("Please select a video first");
+        return;
+    }
+
     Intent intent = new Intent(
             MainActivity.this,
             CaptionsActivity.class
     );
+
+    intent.putExtra("VIDEO_URI", videoUri.toString());
+
     startActivity(intent);
 });
         setContentView(scroll);
