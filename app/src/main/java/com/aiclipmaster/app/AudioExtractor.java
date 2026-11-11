@@ -6,6 +6,7 @@ import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.net.Uri;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -33,92 +34,119 @@ public class AudioExtractor {
         try {
             extractor.setDataSource(context, videoUri, null);
 
-            int audioTrack = -1;
+            int track = -1;
             MediaFormat format = null;
 
             for (int i = 0; i < extractor.getTrackCount(); i++) {
-                MediaFormat f = extractor.getTrackFormat(i);
-                String mime = f.getString(MediaFormat.KEY_MIME);
+                MediaFormat candidate = extractor.getTrackFormat(i);
+                String mime = candidate.getString(MediaFormat.KEY_MIME);
 
                 if (mime != null && mime.startsWith("audio/")) {
-                    audioTrack = i;
-                    format = f;
+                    track = i;
+                    format = candidate;
                     break;
                 }
             }
 
-            if (audioTrack == -1 || format == null) {
-                throw new IOException("Audio track not found.");
+            if (track < 0 || format == null) {
+                throw new IOException("Video mein audio track nahi mila.");
             }
 
-            extractor.selectTrack(audioTrack);
+            extractor.selectTrack(track);
 
             String mime = format.getString(MediaFormat.KEY_MIME);
             decoder = MediaCodec.createDecoderByType(mime);
             decoder.configure(format, null, null, 0);
             decoder.start();
 
-            int inputRate = format.containsKey(MediaFormat.KEY_SAMPLE_RATE)
-                    ? format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-                    : 44100;
+            int sampleRate = format.getInteger(
+                    MediaFormat.KEY_SAMPLE_RATE
+            );
 
-            int channels = format.containsKey(MediaFormat.KEY_CHANNEL_COUNT)
-                    ? format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-                    : 1;
+            int channels = format.getInteger(
+                    MediaFormat.KEY_CHANNEL_COUNT
+            );
 
-            java.io.ByteArrayOutputStream output =
-                    new java.io.ByteArrayOutputStream();
+            ByteArrayOutputStream pcmOutput =
+                    new ByteArrayOutputStream();
 
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+
             boolean inputDone = false;
             boolean outputDone = false;
+            int outputChannels = channels;
 
             while (!outputDone) {
 
                 if (!inputDone) {
-                    int inputIndex = decoder.dequeueInputBuffer(10000);
+                    int inputIndex =
+                            decoder.dequeueInputBuffer(10000);
 
                     if (inputIndex >= 0) {
                         ByteBuffer inputBuffer =
                                 decoder.getInputBuffer(inputIndex);
 
-                        if (inputBuffer != null) {
-                            int size = extractor.readSampleData(
-                                    inputBuffer, 0
+                        if (inputBuffer == null) {
+                            throw new IOException("Decoder input unavailable.");
+                        }
+
+                        inputBuffer.clear();
+
+                        int size = extractor.readSampleData(
+                                inputBuffer, 0
+                        );
+
+                        if (size < 0) {
+                            decoder.queueInputBuffer(
+                                    inputIndex, 0, 0, 0,
+                                    MediaCodec.BUFFER_FLAG_END_OF_STREAM
                             );
-
-                            if (size < 0) {
-                                decoder.queueInputBuffer(
-                                        inputIndex, 0, 0, 0,
-                                        MediaCodec.BUFFER_FLAG_END_OF_STREAM
-                                );
-                                inputDone = true;
-                            } else {
-                                long time = extractor.getSampleTime();
-
-                                decoder.queueInputBuffer(
-                                        inputIndex, 0, size, time, 0
-                                );
-
-                                extractor.advance();
-                            }
+                            inputDone = true;
+                        } else {
+                            decoder.queueInputBuffer(
+                                    inputIndex,
+                                    0,
+                                    size,
+                                    extractor.getSampleTime(),
+                                    0
+                            );
+                            extractor.advance();
                         }
                     }
                 }
 
-                int outputIndex = decoder.dequeueOutputBuffer(info, 10000);
+                int outputIndex =
+                        decoder.dequeueOutputBuffer(info, 10000);
 
-                if (outputIndex >= 0) {
-                    ByteBuffer buffer =
+                if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    MediaFormat outputFormat =
+                            decoder.getOutputFormat();
+
+                    if (outputFormat.containsKey(
+                            MediaFormat.KEY_CHANNEL_COUNT)) {
+                        outputChannels = outputFormat.getInteger(
+                                MediaFormat.KEY_CHANNEL_COUNT
+                        );
+                    }
+
+                    if (outputFormat.containsKey(
+                            MediaFormat.KEY_SAMPLE_RATE)) {
+                        sampleRate = outputFormat.getInteger(
+                                MediaFormat.KEY_SAMPLE_RATE
+                        );
+                    }
+                } else if (outputIndex >= 0) {
+
+                    ByteBuffer outputBuffer =
                             decoder.getOutputBuffer(outputIndex);
 
-                    if (buffer != null && info.size > 0) {
-                        buffer.position(info.offset);
-                        buffer.limit(info.offset + info.size);
+                    if (outputBuffer != null && info.size > 0) {
+                        outputBuffer.position(info.offset);
+                        outputBuffer.limit(info.offset + info.size);
 
-                        byte[] data = new byte[info.size];
-                        buffer.get(data);
-                        output.write(data);
+                        byte[] chunk = new byte[info.size];
+                        outputBuffer.get(chunk);
+                        pcmOutput.write(chunk);
                     }
 
                     decoder.releaseOutputBuffer(outputIndex, false);
@@ -130,39 +158,44 @@ public class AudioExtractor {
                 }
             }
 
-            byte[] pcmBytes = output.toByteArray();
+            if (sampleRate <= 0 || outputChannels <= 0) {
+                throw new IOException("Invalid decoded audio format.");
+            }
 
-            ByteBuffer pcmBuffer = ByteBuffer.wrap(pcmBytes)
+            byte[] pcmBytes = pcmOutput.toByteArray();
+
+            int bytesPerSample = 2;
+            int frameSize = bytesPerSample * outputChannels;
+            int frames = pcmBytes.length / frameSize;
+
+            ByteBuffer buffer = ByteBuffer.wrap(pcmBytes)
                     .order(ByteOrder.LITTLE_ENDIAN);
-
-            int totalSamples = pcmBytes.length / 2;
-            int frames = totalSamples / channels;
 
             float[] mono = new float[frames];
 
             for (int i = 0; i < frames; i++) {
                 float sum = 0;
 
-                for (int c = 0; c < channels; c++) {
-                    short sample = pcmBuffer.getShort();
-                    sum += sample / 32768.0f;
+                for (int c = 0; c < outputChannels; c++) {
+                    sum += buffer.getShort() / 32768.0f;
                 }
 
-                mono[i] = sum / channels;
+                mono[i] = sum / outputChannels;
             }
 
-            float[] resampled = resample(
-                    mono, inputRate, 16000
+            return new AudioData(
+                    resample(mono, sampleRate, 16000),
+                    16000
             );
-
-            return new AudioData(resampled, 16000);
 
         } finally {
             if (decoder != null) {
                 try {
                     decoder.stop();
-                    decoder.release();
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                }
+
+                decoder.release();
             }
 
             extractor.release();
@@ -174,17 +207,19 @@ public class AudioExtractor {
             int inputRate,
             int outputRate
     ) {
-        if (inputRate <= 0 || input.length == 0) {
+        if (input.length == 0 || inputRate <= 0) {
             return new float[0];
         }
 
-        int outputLength =
-                (int) ((long) input.length * outputRate / inputRate);
+        int outputLength = (int) (
+                (long) input.length * outputRate / inputRate
+        );
 
         float[] output = new float[outputLength];
 
         for (int i = 0; i < outputLength; i++) {
-            double position = (double) i * inputRate / outputRate;
+            double position =
+                    (double) i * inputRate / outputRate;
 
             int left = (int) position;
             int right = Math.min(left + 1, input.length - 1);
