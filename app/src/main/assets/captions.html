@@ -1,10 +1,10 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI CLIP MASTER</title>
+
     <style>
         body {
             background: #12121e;
@@ -12,29 +12,46 @@
             font-family: Arial, sans-serif;
             padding: 20px;
         }
+
         button {
             padding: 14px;
             width: 100%;
             margin-top: 15px;
             font-size: 16px;
         }
+
         #status {
             margin-top: 20px;
             white-space: pre-wrap;
+            overflow-wrap: anywhere;
         }
     </style>
 </head>
+
 <body>
+
     <h2>AI CLIP MASTER</h2>
-    <h3>Auto Captions - System Test</h3>
+    <h3>SHRUTI AUTO CAPTIONS</h3>
 
     <button onclick="checkFiles()">CHECK SHRUTI FILES</button>
 
-    <div id="status">Ready for testing.</div>
+    <button onclick="loadShruti()">LOAD SHRUTI ENGINE</button>
+
+    <div id="status">Ready.</div>
 
     <script>
+        const status = document.getElementById("status");
+
+        let worker = null;
+        let engineReady = false;
+
+        const MODEL_URL =
+            "https://github.com/7rohitxo0i0o-hue/-AI-CLIP-MASTER/releases/download/v1.0/shruti.cact";
+
+        const MODEL_SHA256 =
+            "b189e954aaed4a9fd41acbad3ac05e486381e96325b22a4c695b9ea5153d7065";
+
         async function checkFiles() {
-            const status = document.getElementById("status");
             status.textContent = "Checking files...";
 
             const files = [
@@ -49,9 +66,9 @@
             for (const file of files) {
                 try {
                     const response = await fetch(file);
+
                     results.push(
-                        (response.ok ? "OK: " : "FAILED: ") +
-                        file
+                        (response.ok ? "OK: " : "FAILED: ") + file
                     );
                 } catch (error) {
                     results.push("ERROR: " + file);
@@ -60,6 +77,82 @@
 
             status.textContent = results.join("\n");
         }
+
+        function loadShruti() {
+            if (engineReady) {
+                status.textContent = "Shruti Engine is already ready.";
+                return;
+            }
+
+            if (worker) {
+                status.textContent = "Shruti is already loading.";
+                return;
+            }
+
+            status.textContent = "Starting Shruti Engine...";
+
+            try {
+                worker = new Worker("shruti-worker.js");
+
+                worker.onmessage = function(event) {
+                    const msg = event.data || {};
+
+                    if (msg.type === "progress") {
+                        const percent = msg.total > 0
+                            ? Math.round(
+                                msg.loaded * 100 / msg.total
+                              )
+                            : 0;
+
+                        status.textContent =
+                            "Downloading Shruti Model...\n" +
+                            percent + "%";
+                    }
+
+                    if (msg.type === "ready") {
+                        engineReady = true;
+
+                        status.textContent =
+                            "Shruti Engine Ready!\n" +
+                            "Model source: " + msg.source + "\n" +
+                            "Cached: " + msg.saved;
+                    }
+
+                    if (msg.type === "error") {
+                        status.textContent =
+                            "Shruti Error:\n" + msg.message;
+
+                        worker.terminate();
+                        worker = null;
+                    }
+                };
+
+                worker.onerror = function(error) {
+                    status.textContent =
+                        "Worker Error: " + error.message;
+
+                    worker.terminate();
+                    worker = null;
+                };
+
+                worker.postMessage({
+                    type: "init",
+                    url: MODEL_URL,
+                    sha256: MODEL_SHA256
+                });
+
+            } catch (error) {
+                status.textContent =
+                    "Could not start Shruti:\n" + error.message;
+
+                worker = null;
+            }
+        }
+
+        window.setVideoUri = function(uri) {
+            window.selectedVideoUri = uri;
+        };
     </script>
+
 </body>
 </html>
