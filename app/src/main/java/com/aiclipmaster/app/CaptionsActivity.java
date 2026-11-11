@@ -4,21 +4,21 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.graphics.Color;
 import android.view.Gravity;
-import android.net.Uri;
-import android.view.View;
+import android.webkit.WebView;
+import android.webkit.WebResourceRequest;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import androidx.webkit.WebViewAssetLoader;
+import androidx.webkit.WebViewClientCompat;
+
+import org.json.JSONObject;
 
 public class CaptionsActivity extends Activity {
 
+    private WebView webView;
     private TextView statusText;
-    private Button extractButton;
-    private ExecutorService executor;
-
     private String videoUriString = "";
 
     @Override
@@ -31,109 +31,101 @@ public class CaptionsActivity extends Activity {
             videoUriString = "";
         }
 
-        executor = Executors.newSingleThreadExecutor();
-
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(20, 20, 20, 20);
+        root.setPadding(12, 12, 12, 12);
         root.setBackgroundColor(Color.rgb(18, 18, 30));
 
         TextView title = new TextView(this);
         title.setText("AI CLIP MASTER");
-        title.setTextSize(23);
+        title.setTextSize(22);
         title.setTextColor(Color.WHITE);
         title.setGravity(Gravity.CENTER);
         root.addView(title);
 
-        TextView subtitle = new TextView(this);
-        subtitle.setText("AUTO CAPTIONS");
-        subtitle.setTextSize(18);
-        subtitle.setTextColor(Color.WHITE);
-        subtitle.setGravity(Gravity.CENTER);
-        subtitle.setPadding(0, 15, 0, 10);
-        root.addView(subtitle);
-
         statusText = new TextView(this);
         statusText.setTextColor(Color.WHITE);
-        statusText.setTextSize(15);
-        statusText.setPadding(0, 20, 0, 20);
+        statusText.setTextSize(14);
+        statusText.setPadding(5, 12, 5, 12);
 
         statusText.setText(
                 videoUriString.isEmpty()
                         ? "Please select a video first."
-                        : "Video received. Ready to extract audio."
+                        : "Loading Shruti test page..."
         );
 
         root.addView(statusText);
 
-        extractButton = new Button(this);
-        extractButton.setText("EXTRACT VIDEO AUDIO");
-        root.addView(extractButton);
+        webView = new WebView(this);
 
-        extractButton.setOnClickListener(v -> extractAudio());
+        webView.getSettings().setJavaScriptEnabled(true);
+        webView.getSettings().setDomStorageEnabled(true);
 
-        Button close = new Button(this);
-        close.setText("BACK");
-        root.addView(close);
+        WebViewAssetLoader assetLoader =
+                new WebViewAssetLoader.Builder()
+                        .addPathHandler(
+                                "/assets/",
+                                new WebViewAssetLoader.AssetsPathHandler(this)
+                        )
+                        .build();
 
-        close.setOnClickListener(v -> finish());
+        webView.setWebViewClient(new WebViewClientCompat() {
 
-        setContentView(root);
-    }
+            @Override
+            public android.webkit.WebResourceResponse shouldInterceptRequest(
+                    WebView view,
+                    WebResourceRequest request
+            ) {
+                return assetLoader.shouldInterceptRequest(
+                        request.getUrl()
+                );
+            }
 
-    private void extractAudio() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
 
-        if (videoUriString.isEmpty()) {
-            statusText.setText("Please select a video first.");
-            return;
-        }
+                String safeUri = JSONObject.quote(videoUriString);
 
-        extractButton.setEnabled(false);
-        statusText.setText("Extracting audio. Please wait...");
+                webView.evaluateJavascript(
+                        "window.setVideoUri(" + safeUri + ");",
+                        null
+                );
 
-        executor.execute(() -> {
-            try {
-                Uri videoUri = Uri.parse(videoUriString);
-
-                AudioExtractor.AudioData audio =
-                        AudioExtractor.extractAudio(
-                                this,
-                                videoUri
-                        );
-
-                runOnUiThread(() -> {
-                    extractButton.setEnabled(true);
-
-                    statusText.setText(
-                            "Audio extracted successfully!\n\n" +
-                            "Sample Rate: " + audio.sampleRate + " Hz\n" +
-                            "Channels: Mono\n" +
-                            "Audio Samples: " + audio.samples.length + "\n" +
-                            "Duration: " +
-                            String.format(
-                                    java.util.Locale.US,
-                                    "%.2f seconds",
-                                    audio.samples.length / 16000.0
-                            )
-                    );
-                });
-
-            } catch (Exception e) {
-                runOnUiThread(() -> {
-                    extractButton.setEnabled(true);
-                    statusText.setText(
-                            "Audio extraction failed:\n" +
-                            e.getMessage()
-                    );
-                });
+                statusText.setText(
+                        "Captions page loaded. Load Shruti Engine to continue."
+                );
             }
         });
+
+        root.addView(
+                webView,
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        0,
+                        1
+                )
+        );
+
+        Button back = new Button(this);
+        back.setText("BACK");
+        root.addView(back);
+
+        back.setOnClickListener(v -> finish());
+
+        setContentView(root);
+
+        webView.loadUrl(
+                "https://appassets.androidplatform.net/assets/captions.html"
+        );
     }
 
     @Override
     protected void onDestroy() {
-        if (executor != null) {
-            executor.shutdownNow();
+        if (webView != null) {
+            webView.stopLoading();
+            webView.destroy();
+            webView = null;
         }
 
         super.onDestroy();
